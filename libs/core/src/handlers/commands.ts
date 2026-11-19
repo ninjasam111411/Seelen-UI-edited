@@ -123,6 +123,7 @@ export enum SeelenCommand {
   WegPinItem = "weg_pin_item",
   WegImportPinnedTaskbarItems = "weg_import_pinned_taskbar_items",
   WegLaunchItem = "weg_launch_item",
+  GetInstalledGames = "get_installed_games",
   WmGetRenderTree = "wm_get_render_tree",
   SetAppWindowsPositions = "set_app_windows_positions",
   WmSetStackActiveWindow = "wm_set_stack_active_window",

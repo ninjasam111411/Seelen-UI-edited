@@ -12,6 +12,7 @@ styles:
   # as friendly ids are not stable.
   "@seelen/fancy-toolbar": !include styles/fancy-toolbar.scss
   "@seelen/power-menu": !include styles/power-menu.scss
+  "@seelen/console-room": !include styles/console-room.scss
   "@seelen/task-switcher": !include styles/task-switcher.scss
   "@seelen/wallpaper-manager": !include styles/wallpaper-manager.css
   "@seelen/weg": !include styles/weg.scss

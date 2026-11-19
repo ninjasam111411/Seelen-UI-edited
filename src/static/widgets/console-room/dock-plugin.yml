@@ -1,0 +1,13 @@
+id: "@seelen/dock-console-room"
+metadata:
+  displayName: !extend i18n/plugin/display_name.yml
+  description: !extend i18n/plugin/description.yml
+icon: PiDiscDuotone
+target: "@seelen/weg"
+plugin:
+  scopes: []
+  render: !include dock_plugin.js
+  tooltip: |-
+    return "Console Room";
+  onClick: |-
+    trigger("@seelen/console-room");

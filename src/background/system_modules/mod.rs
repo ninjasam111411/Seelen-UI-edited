@@ -44,6 +44,7 @@ pub mod brightness;
 pub mod clipboard;
 pub mod focus_assist;
 pub mod fonts;
+pub mod games;
 pub mod languages;
 pub mod media_devices;
 pub mod media_players;

@@ -1,0 +1,32 @@
+title: Console Room
+hint: Drag to look around · Scroll to walk · Drop a disc in the console to play
+close: Close
+shelf: Game Shelf
+shelf_empty: No games found yet. Drag apps onto the Disc Maker to make discs.
+page: Page {{0}} of {{1}}
+prev: Previous
+next: Next
+console: Console
+insert_here: Drop a disc here
+loading: Starting {{0}}…
+disc_maker: Disc Maker
+disc_maker_hint: Drop any app or file here to make a disc
+burning: Burning {{0}}…
+burned: Disc made for {{0}}
+already_burned: "{{0}} already has a disc"
+remove_disc: Remove disc
+file_sorter: File Sorter
+open: Open
+make_disc: Make disc
+empty_folder: This drawer is empty
+back: Back
+launch_failed: Couldn't start {{0}}
+drawers:
+  apps: Apps
+  desktop: Desktop
+  documents: Documents
+  downloads: Downloads
+  pictures: Pictures
+  music: Music
+  videos: Videos
+  recent: Recent

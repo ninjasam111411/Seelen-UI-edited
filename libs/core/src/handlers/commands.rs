@@ -504,6 +504,9 @@ slu_commands_declaration! {
         @fallible()
         weg_launch_item(item: WegItemData, elevated: bool),
 
+    // Games (console room)
+    GetInstalledGames = get_installed_games() -> Vec<InstalledGame>,
+
     // Windows Manager
     WmGetRenderTree = wm_get_render_tree() -> TwmGlobalRuntimeTree,
     SetAppWindowsPositions =
