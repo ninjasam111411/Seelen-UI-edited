@@ -11,7 +11,10 @@ use crate::{
     },
     state::WEG_ITEMS_MANAGER,
     system_modules::start::StartMenuManager,
-    widgets::permissions::{WidgetPerm, request_widget_permission},
+    widgets::{
+        permissions::{WidgetPerm, request_widget_permission},
+        weg::launch::resolve_launch_target,
+    },
 };
 
 impl crate::tauri_handlers::Handlers {
@@ -96,5 +99,23 @@ impl crate::tauri_handlers::Handlers {
         }
 
         Ok(count)
+    }
+
+    pub fn weg_launch_item(
+        webview: tauri::WebviewWindow,
+        item: WegItemData,
+        elevated: bool,
+    ) -> Result<()> {
+        request_widget_permission(&webview, WidgetPerm::Run)?;
+        let start_menu = StartMenuManager::instance();
+        let by_umid = item
+            .umid
+            .as_deref()
+            .and_then(|umid| start_menu.get_by_file_umid(umid));
+        let target =
+            resolve_launch_target(&item, by_umid, &start_menu.get_all(), |path| path.exists());
+        log::trace!("Launching dock item {:?} via {target:?}", item.display_name);
+        let (program, args, working_dir) = target.to_shell_args();
+        shell::execute(&program, args.as_deref(), working_dir.as_deref(), elevated)
     }
 }

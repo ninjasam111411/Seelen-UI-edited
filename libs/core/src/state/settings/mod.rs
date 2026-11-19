@@ -68,7 +68,8 @@ impl Default for FancyToolbarSettings {
             padding: 8,
             margin: 0,
             position: FancyToolbarSide::Top,
-            hide_mode: HideMode::Never,
+            // hides when a window covers it, so it never sits on top of maximized apps (e.g. browser tabs)
+            hide_mode: HideMode::OnOverlap,
             delay_to_show: 100,
             delay_to_hide: 800,
         }

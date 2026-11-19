@@ -497,6 +497,12 @@ slu_commands_declaration! {
         @webview()
         @fallible()
         weg_import_pinned_taskbar_items() -> usize,
+    // Opens a dock item the way the Windows search does: through its current start menu entry,
+    // so apps that move their executable on every update (versioned folders) keep working.
+    WegLaunchItem =
+        @webview()
+        @fallible()
+        weg_launch_item(item: WegItemData, elevated: bool),
 
     // Windows Manager
     WmGetRenderTree = wm_get_render_tree() -> TwmGlobalRuntimeTree,

@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod handler;
+pub mod launch;
 #[cfg(windows)]
 mod windows;
 

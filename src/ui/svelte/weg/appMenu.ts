@@ -152,20 +152,11 @@ export function getUserApplicationContextMenu(
   return { identifier, items };
 }
 
+/**
+ * Opens the item the way the Windows search does: the background resolves its current start menu
+ * entry, so apps that move their executable on every update (e.g. Roblox Studio) keep working.
+ */
 export function launchItem(item: AppOrFileWegItem, elevated: boolean) {
-  if (item.relaunch) {
-    return invoke(SeelenCommand.Run, {
-      program: item.relaunch.command,
-      args: item.relaunch.args,
-      workingDir: item.relaunch.workingDir,
-      elevated,
-    });
-  }
-
-  return invoke(SeelenCommand.Run, {
-    program: item.umid ? `shell:AppsFolder\\${item.umid}` : item.path,
-    args: null,
-    workingDir: null,
-    elevated,
-  });
+  const { type: _type, ...data } = item;
+  return invoke(SeelenCommand.WegLaunchItem, { item: data, elevated });
 }
