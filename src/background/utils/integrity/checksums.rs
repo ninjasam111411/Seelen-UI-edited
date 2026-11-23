@@ -9,8 +9,15 @@ use crate::error::Result;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
-/// Public key for minisign verification (same as updater)
-const MINISIGN_PUBLIC_KEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ4QjU1RUI0NEM0NzBERUIKUldUckRVZE10RjYxU0lpaERvdklYL05DVlg0Sk9EVngvaEgzZjMvU1NNemJTZXZ1K0dNVXU3ZkQK";
+/// Public key for minisign verification: the one embedded by build.rs when the build was signed
+/// with a generated key (no official key available), otherwise the official one.
+const MINISIGN_PUBLIC_KEY: &str = match option_env!("SLU_CHECKSUMS_PUBLIC_KEY") {
+    Some(key) => key,
+    None => OFFICIAL_MINISIGN_PUBLIC_KEY,
+};
+
+/// Official public key for minisign verification (same as updater)
+const OFFICIAL_MINISIGN_PUBLIC_KEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ4QjU1RUI0NEM0NzBERUIKUldUckRVZE10RjYxU0lpaERvdklYL05DVlg0Sk9EVngvaEgzZjMvU1NNemJTZXZ1K0dNVXU3ZkQK";
 
 pub async fn ensure_bundle_files_integrity(app: &tauri::AppHandle) -> Result<()> {
     log::trace!("Validating bundle files integrity");

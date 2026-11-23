@@ -1,64 +1,433 @@
-<script lang="ts"></script>
+<script lang="ts">
+  // Default wallpaper: a still view of the Console Room (src/ui/svelte/console-room), drawn with
+  // CSS 3D on a 1920x1080 stage that is scaled to cover the monitor. Press Win+Shift+G to enter.
 
-<svg width="1920" height="1080" viewBox="0 0 507.99999 285.75" version="1.1">
-  <defs>
-    <clipPath clipPathUnits="userSpaceOnUse" id="clipPath11">
-      <rect
-        style="opacity:1;fill:#a8a8a8;fill-opacity:1;fill-rule:nonzero;stroke:#ffffff;stroke-width:0;stroke-dasharray:none;stroke-opacity:1"
-        id="rect12"
-        width="515.69818"
-        height="280.8439"
-        x="3.8769755"
-        y="2.7772453"
-      />
-    </clipPath>
-  </defs>
+  const STAGE_WIDTH = 1920;
+  const STAGE_HEIGHT = 1080;
+  const PERSPECTIVE = STAGE_WIDTH / 2;
 
-  <g
-    transform="matrix(0.98507229,0,0,1.0174691,-3.8191012,-2.8257612)"
-    style="display:inline;stroke:#ffffff;stroke-width:0.792846;stroke-dasharray:none;stroke-opacity:1"
-    clip-path="url(#clipPath11)"
-  >
-    <path
-      style="display:inline;fill:#a8a8a8;fill-opacity:1;stroke:#a8a8a8;stroke-width:0.78817;stroke-dasharray:none;stroke-opacity:1"
-      d="m 235.24329,283.26004 c 9.14773,-16.60847 29.47199,-18.6562 45.50475,-24.51787 15.13284,-7.67616 15.82635,-27.76418 10.62079,-41.87543 -4.88698,-18.23738 15.43954,-29.81469 31.29976,-27.81827 15.1631,-0.0577 32.08431,-6.92295 36.72071,-22.61916 5.76713,-17.14528 -4.22578,-36.14451 -19.92343,-43.97664 -17.88776,-10.82259 -43.16674,-12.73618 -53.83086,-33.006243 -7.61067,-18.281836 12.06641,-38.128182 30.54205,-34.606026 19.59562,1.768802 35.11137,16.959616 44.14823,32.978487 9.31394,13.959382 34.02585,11.183709 33.89003,-7.195746 C 395.43894,59.43346 376.19949,45.073344 359.96274,35.269619 343.39788,24.197088 322.71052,30.329097 304.54507,26.906237 287.28235,23.577717 286.83702,2.7509165 287.79259,3.0571695 c 0,0 4.08887,-3.33729875 15.132,-0.2105399 C 344.2353,3.2532069 385.56225,2.2982364 426.87582,3.2090872 409.359,2.7807894 395.2047,28.885493 413.922,38.252727 c 19.95936,11.871045 43.47282,-1.132569 64.74428,4.937209 16.92744,3.344004 33.62632,19.027115 29.46943,37.5369 -4.43539,22.253284 -27.42545,34.114794 -48.08181,37.320364 -19.8836,4.03073 -44.74641,7.95199 -53.94192,28.8025 -8.29021,20.03664 1.60939,46.24717 -16.17056,62.40173 -15.68147,12.55201 -40.55674,-0.65554 -54.00321,16.20736 -9.50975,18.08682 5.25377,41.03467 -10.84601,58.19132 -29.94187,1.22369 -59.90321,-0.12226 -89.84891,-0.39007 z M 435.98934,194.5716 c -24.39235,-2.91259 -11.24601,-56.38424 9.695,-53.68902 20.94101,2.69522 12.23611,55.16349 -9.695,53.68902 z"
-    />
-    <path
-      style="display:inline;fill:#767676;fill-opacity:1;stroke:#767676;stroke-width:0.78817;stroke-dasharray:none;stroke-opacity:1"
-      d="m 220.526,283.78395 c -6.8569,0.0344 -16.12431,4.26963 -9.83769,-5.45355 6.01236,-22.46822 -11.72804,-41.28385 -14.19222,-62.70661 -2.20799,-17.51156 10.67907,-34.5273 27.93468,-37.70333 15.12637,-3.71814 35.44817,-4.36971 42.36252,-21.07131 5.98141,-14.79097 -6.38829,-30.42361 -21.05875,-32.95421 -18.25394,-4.44733 -41.22583,0.48783 -54.44299,-16.06701 -12.01141,-13.896537 -9.13628,-41.120972 10.08713,-46.902169 15.20383,-4.671379 24.82305,13.193548 17.07332,25.43317 -4.39134,14.098039 15.8395,22.515149 24.76851,12.230247 12.09343,-11.7421 5.29369,-31.36086 -6.43182,-40.671818 -15.2829,-13.991449 -37.06971,-15.052004 -54.87164,-24.00367 -12.60602,-5.496963 -8.01085,-25.421139 6.04803,-23.685377 14.28501,0.499898 28.5035,11.12347 41.87969,6.663634 6.22089,-2.074143 9.97415,-7.3142981 13.37601,-14.0528071 13.01704,0.2380293 31.32771,-1.1700027 44.12817,0.035931 0.1844,13.8535421 11.8366,25.6408451 25.81289,24.6939011 14.84258,-0.529991 30.49165,-1.514868 43.90281,6.22964 15.63968,8.744936 32.30915,20.767334 36.96111,39.030914 3.4133,12.75372 -7.49849,28.585164 -21.54108,24.856012 -16.82893,-4.987683 -20.89855,-24.977872 -34.70466,-34.192643 -14.57475,-12.444704 -40.88629,-12.300978 -50.86685,5.870609 -7.89544,13.328353 1.20543,29.6333 14.03513,35.714816 19.58903,10.37953 45.37673,14.49363 56.67798,35.86783 10.28148,18.46141 -2.6001,43.7219 -23.35265,46.75906 -13.89957,2.53517 -32.4029,-0.65598 -40.9803,13.46342 -8.0848,16.21318 9.15222,35.82172 -4.13439,50.58663 -14.55471,15.82873 -41.11163,9.37691 -51.9,30.09998 -1.01901,6.16065 -5.41389,1.62905 -9.91054,2.02069 -1.00797,-10e-6 -5.81443,-0.092 -6.8224,-0.092 z"
-    />
-    <path
-      style="display:inline;fill:#606060;fill-opacity:1;stroke:#606060;stroke-width:0.78817;stroke-dasharray:none;stroke-opacity:1"
-      d="M 64.816729,283.69898 C 70.174633,266.20245 82.788469,244.11983 97.265442,233.46347 118.57119,218.47583 129.8972,191.69774 126.20774,165.97295 122.14534,130.25949 97.000125,102.44357 73.55139,77.239743 58.101854,61.38378 49.024298,40.967288 42.541056,20.099397 39.896088,11.153859 25.219187,-1.8294131 42.253833,2.48426 107.64461,2.4176594 176.92942,2.7480117 242.31962,3.0025621 238.07564,18.107846 218.85958,22.827564 206.10347,15.508986 196.16741,8.6578195 172.98303,6.4687984 174.4211,23.9694 c 5.19599,15.369872 24.37666,14.830575 37.04566,20.345525 18.5663,5.690027 39.86457,20.01469 38.00139,41.881275 -0.31444,14.31095 -20.982,23.74985 -29.5924,10.611327 -5.6452,-11.308047 9.53651,-29.655572 -8.30784,-35.435552 -15.97603,-5.450735 -29.30836,12.569697 -27.40275,27.305618 0.0582,19.180507 18.57969,32.423037 36.61579,32.248527 16.61838,1.14908 39.10923,1.58886 46.08292,20.09828 5.88686,14.55786 -6.51525,29.53835 -20.81544,32.10012 -16.72807,4.03778 -38.19825,5.31154 -46.1908,23.45432 -9.77588,19.4092 3.44862,39.08711 9.61307,57.23565 2.3249,8.94734 5.51814,27.94972 -3.69953,32.17581 -52.32988,-0.12245 -89.39771,3.75399 -140.954441,-2.29132 z M 326.29911,173.17891 c -16.5659,0.003 -35.28972,-14.49183 -32.40221,-32.33347 5.60615,-16.20536 25.94415,-10.74337 37.3002,-4.4724 12.69282,3.28997 24.33049,19.71275 12.57697,30.57021 -4.53303,4.56547 -11.18834,6.33772 -17.47496,6.23566 z"
-    />
-    <path
-      style="display:inline;fill:#494949;fill-opacity:1;stroke:#494949;stroke-width:0.78817;stroke-dasharray:none;stroke-opacity:1"
-      d="M 1.5114306,285.99047 V 2.5680694 C 12.693011,2.5751194 23.874592,2.5821724 35.056172,2.5892234 45.93452,24.351979 49.846372,49.738088 66.272319,68.539964 85.812786,92.153 109.71132,113.41056 120.46523,142.95857 c 11.34838,27.64598 7.94791,63.23983 -15.40914,83.74255 -14.217985,12.58371 -34.606136,35.72578 -40.534146,58.49271 -1.756132,6.74455 -40.307514,0.79664 -63.0105134,0.79664 z m 144.8057994,0 h -29.1157 c 8.4792,-8.38038 17.72345,-17.43841 18.2864,-30.17462 1.44459,-13.08049 3.29092,-31.54658 19.02457,-34.79682 14.93984,-2.61489 26.35681,12.56149 25.71278,26.40697 -0.0591,12.96874 -1.88116,25.93496 -4.79236,38.56447 z M 118.99551,87.863335 C 104.39719,87.044541 99.954574,70.921436 93.735846,60.353103 88.421271,48.716426 71.519147,46.794743 68.939073,33.518689 68.252837,18.360223 86.660657,23.098465 95.315096,27.174919 c 17.661674,4.983484 35.267834,-2.366157 52.638774,-4.527623 16.86818,-2.238794 18.81645,17.389648 3.64021,19.405613 -14.6292,0.214286 -16.16343,16.796753 -16.3822,27.882136 -0.84803,8.463424 -6.71916,18.096033 -16.21637,17.92829 z"
-    />
-  </g>
-</svg>
+  // room in CSS px: +x right, +y down, +z towards the viewer; camera at z = 900 looking at -z
+  const HALF_WIDTH = 1400;
+  const BACK_Z = -1400;
+  const FRONT_Z = 1400;
+  const FLOOR_Y = 460;
+  const CEILING_Y = -700;
+  const CAMERA_Z = 900;
+  const WALL_HEIGHT = FLOOR_Y - CEILING_Y;
+  const WALL_CENTER_Y = (FLOOR_Y + CEILING_Y) / 2;
+  const ROOM_DEPTH = FRONT_Z - BACK_Z;
+  const STAND_TOP = 210;
+  const STAND_FRONT_Z = BACK_Z + 300;
 
-<div class="overlay"></div>
+  const DISC_COLORS = [
+    "#e5484d",
+    "#3e63dd",
+    "#30a46c",
+    "#f76b15",
+    "#0090ff",
+    "#8e4ec6",
+    "#ffc53d",
+    "#12a594",
+    "#d6409f",
+    "#6e56cf",
+    "#e54666",
+    "#46a758",
+    "#ab4aba",
+    "#ffb224",
+    "#00a2c7",
+    "#978365",
+  ];
 
-<style>
-  svg {
-    height: 100%;
-    width: auto;
-    aspect-ratio: 16 / 9;
+  let container: HTMLDivElement | undefined = $state();
+  let scale = $state(1);
+
+  $effect(() => {
+    if (!container) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry!.contentRect;
+      scale = Math.max(width / STAGE_WIDTH, height / STAGE_HEIGHT);
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  });
+
+  /** Chrome drops big 3D layers that reach behind the camera, so surfaces are split in tiles. */
+  const TILE = 400;
+  function tiles(width: number, height: number) {
+    const columns = Math.ceil(width / TILE);
+    const rows = Math.ceil(height / TILE);
+    const list: { key: string; x: number; y: number; w: number; h: number }[] = [];
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < columns; col++) {
+        list.push({
+          key: `${col}-${row}`,
+          x: (col * width) / columns,
+          y: (row * height) / rows,
+          w: width / columns,
+          h: height / rows,
+        });
+      }
+    }
+    return list;
   }
 
-  .overlay {
+  const surfaces = [
+    { name: "back", width: HALF_WIDTH * 2, height: WALL_HEIGHT, transform: `translate3d(0px, ${WALL_CENTER_Y}px, ${BACK_Z}px)` },
+    { name: "left", width: ROOM_DEPTH, height: WALL_HEIGHT, transform: `translate3d(${-HALF_WIDTH}px, ${WALL_CENTER_Y}px, 0px) rotateY(90deg)` },
+    { name: "right", width: ROOM_DEPTH, height: WALL_HEIGHT, transform: `translate3d(${HALF_WIDTH}px, ${WALL_CENTER_Y}px, 0px) rotateY(-90deg)` },
+    { name: "floor", width: HALF_WIDTH * 2, height: ROOM_DEPTH, transform: `translate3d(0px, ${FLOOR_Y}px, 0px) rotateX(90deg)` },
+    { name: "ceiling", width: HALF_WIDTH * 2, height: ROOM_DEPTH, transform: `translate3d(0px, ${CEILING_Y}px, 0px) rotateX(-90deg)` },
+  ];
+
+  /** On a wall, in the wall's own coordinates; `offset` is towards the room. */
+  function onWall(x: number, y: number, offset: number) {
+    return `translate3d(${x}px, ${y}px, ${offset}px) translate(-50%, -50%)`;
+  }
+
+  function place(x: number, y: number, z: number, rotation = "") {
+    return `translate3d(${x}px, ${y}px, ${z}px) ${rotation} translate(-50%, -50%)`;
+  }
+</script>
+
+<div class="room-wallpaper" bind:this={container}>
+  <div
+    class="stage"
+    style:width={STAGE_WIDTH + "px"}
+    style:height={STAGE_HEIGHT + "px"}
+    style:transform={`translate(-50%, -50%) scale(${scale})`}
+    style:perspective={PERSPECTIVE + "px"}
+  >
+    <div class="world" style:transform={`translateZ(${PERSPECTIVE}px) translate3d(0px, 0px, ${-CAMERA_Z}px)`}>
+      {#each surfaces as surface (surface.name)}
+        <div class="surface" style:transform={surface.transform}>
+          {#each tiles(surface.width, surface.height) as tile (tile.key)}
+            <div
+              class="plane tile {surface.name}"
+              style:width={tile.w + 1 + "px"}
+              style:height={tile.h + 1 + "px"}
+              style:transform={`translate3d(${tile.x - surface.width / 2}px, ${tile.y - surface.height / 2}px, 0px)`}
+              style:background-size={`${surface.width}px ${surface.height}px`}
+              style:background-position={`${-tile.x}px ${-tile.y}px`}
+            ></div>
+          {/each}
+          {#if surface.name === "back"}
+            <div class="plane tv" style:transform={onWall(0, -140 - WALL_CENTER_Y, 20)}>
+              <div class="tv-screen">
+                <span class="tv-title">Console Room</span>
+                <span class="tv-hint">Win + Shift + G</span>
+              </div>
+            </div>
+          {:else if surface.name === "left"}
+            <div class="plane shelf" style:transform={onWall(150, -80 - WALL_CENTER_Y, 30)}>
+              <div class="panel-title">Game Shelf</div>
+              <div class="shelf-grid">
+                {#each DISC_COLORS as color, i (i)}
+                  <div class="disc">
+                    <div class="disc-label" style:background={color}></div>
+                    <div class="disc-hole"></div>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {:else if surface.name === "right"}
+            <div class="plane maker" style:transform={onWall(-820, -20 - WALL_CENTER_Y, 30)}>
+              <div class="panel-title dark">Disc Maker</div>
+              <div class="maker-tray"><div class="maker-blank"></div></div>
+            </div>
+            <div class="plane sorter" style:transform={onWall(250, -60 - WALL_CENTER_Y, 30)}>
+              <div class="panel-title">File Sorter</div>
+              <div class="sorter-drawers">
+                {#each Array(8) as _, i (i)}
+                  <div class="drawer"><span class="handle"></span></div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+        </div>
+      {/each}
+
+      <!-- TV stand and console -->
+      <div
+        class="plane stand-front"
+        style:height={FLOOR_Y - STAND_TOP + "px"}
+        style:transform={place(0, (FLOOR_Y + STAND_TOP) / 2, STAND_FRONT_Z)}
+      ></div>
+      <div class="plane stand-top" style:transform={place(0, STAND_TOP, STAND_FRONT_Z - 150, "rotateX(90deg)")}></div>
+      <div class="plane console" style:transform={place(640, STAND_TOP - 180, STAND_FRONT_Z - 60)}>
+        <div class="console-shell left"></div>
+        <div class="console-core">
+          <div class="console-slot"></div>
+          <div class="console-light"></div>
+        </div>
+        <div class="console-shell right"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<style>
+  .room-wallpaper {
     position: absolute;
-    top: 0;
+    inset: 0;
+    overflow: hidden;
+    /* matches the ceiling, so tiles Chrome skips right above the camera don't show as holes */
+    background: linear-gradient(180deg, #232733 0%, #13151b 45%, #2a2219 100%);
+  }
+
+  .stage {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform-origin: center;
+  }
+
+  .world {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 0;
+    height: 0;
+    transform-style: preserve-3d;
+  }
+
+  .plane {
+    position: absolute;
     left: 0;
+    top: 0;
+  }
+
+  .surface {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform-style: preserve-3d;
+  }
+
+  .tile {
+    background-repeat: no-repeat;
+  }
+
+  .left,
+  .right {
+    background-image: radial-gradient(ellipse at 50% 35%, #3a4152 0%, #232733 60%, #161922 100%);
+  }
+
+  .back {
+    background-image: radial-gradient(ellipse at 50% 40%, #46506a 0%, #262b39 55%, #171a23 100%);
+  }
+
+  .floor {
+    background-image:
+      repeating-linear-gradient(90deg, rgb(255 255 255 / 0.04) 0 2px, transparent 2px 200px),
+      repeating-linear-gradient(0deg, rgb(255 255 255 / 0.04) 0 2px, transparent 2px 200px),
+      radial-gradient(ellipse at 50% 30%, #5a4a3b 0%, #3a3027 55%, #241e19 100%);
+  }
+
+  .ceiling {
+    background-image: radial-gradient(ellipse at 50% 50%, #2a2e3a 0%, #13151b 100%);
+  }
+
+  .tv {
+    width: 1000px;
+    height: 580px;
+    padding: 20px;
+    border-radius: 18px;
+    background: #07080b;
+    box-shadow: 0 30px 80px rgb(0 0 0 / 0.6);
+  }
+
+  .tv-screen {
     width: 100%;
     height: 100%;
-    background: linear-gradient(
-      to right,
-      var(--system-accent-darker-color),
-      var(--system-accent-color),
-      var(--system-accent-lighter-color)
-    );
-    mix-blend-mode: multiply;
+    border-radius: 6px;
+    background: radial-gradient(ellipse at 50% 50%, #16203a 0%, #070a12 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+  }
+
+  .tv-title {
+    font-size: 46px;
+    font-weight: 300;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: rgb(255 255 255 / 0.35);
+  }
+
+  .tv-hint {
+    font-size: 26px;
+    padding: 8px 22px;
+    border-radius: 999px;
+    color: rgb(255 255 255 / 0.7);
+    background: rgb(255 255 255 / 0.08);
+  }
+
+  .stand-front {
+    width: 1500px;
+    background: linear-gradient(180deg, #2b241d 0%, #1d1813 100%);
+    border-radius: 6px 6px 0 0;
+  }
+
+  .stand-top {
+    width: 1500px;
+    height: 300px;
+    background: linear-gradient(0deg, #3a3027 0%, #2e261f 100%);
+  }
+
+  .console {
+    width: 150px;
+    height: 360px;
+    display: flex;
+  }
+
+  .console-shell {
+    flex: 1;
+    background: linear-gradient(180deg, #ffffff 0%, #e6e8ee 100%);
+  }
+
+  .console-shell.left {
+    border-radius: 46px 0 0 10px;
+  }
+
+  .console-shell.right {
+    border-radius: 0 46px 10px 0;
+  }
+
+  .console-core {
+    width: 38%;
+    background: linear-gradient(180deg, #16181e 0%, #0b0c10 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 70px;
+    gap: 18px;
+  }
+
+  .console-slot {
+    width: 70%;
+    height: 6px;
+    border-radius: 3px;
+    background: #000;
+  }
+
+  .console-light {
+    width: 6px;
+    height: 120px;
+    border-radius: 3px;
+    background: var(--system-accent-color, #0a84ff);
+    opacity: 0.6;
+  }
+
+  .panel-title {
+    font-size: 34px;
+    font-weight: 600;
+    color: #e9ecf3;
+    text-align: center;
+    margin-bottom: 20px;
+  }
+
+  .panel-title.dark {
+    color: #1a1d24;
+  }
+
+  .shelf {
+    width: 1560px;
+    padding: 30px 40px;
+    border-radius: 20px;
+    background: linear-gradient(180deg, #3b3027 0%, #2a221c 100%);
+  }
+
+  .shelf-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 24px 10px;
+  }
+
+  .disc {
+    position: relative;
+    width: 150px;
+    height: 150px;
+    margin: 0 auto;
+    border-radius: 50%;
+    background: conic-gradient(from 20deg, #cfd4dc, #a6d8ff, #ecd9ff, #cfd4dc, #ffe2bd, #bfffe8, #cfd4dc);
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+  }
+
+  .disc-label {
+    position: absolute;
+    inset: 22%;
+    border-radius: 50%;
+  }
+
+  .disc-hole {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 11%;
+    height: 11%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: #05060a;
+  }
+
+  .maker {
+    width: 560px;
+    padding: 30px;
+    border-radius: 24px;
+    background: linear-gradient(180deg, #e9ebf0 0%, #c9cdd6 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .maker-tray {
+    width: 280px;
+    height: 280px;
+    border-radius: 50%;
+    background: #1a1d24;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .maker-blank {
+    width: 84%;
+    height: 84%;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg, #8a8f99, #d9dde4, #8a8f99, #d9dde4, #8a8f99);
+    opacity: 0.35;
+  }
+
+  .sorter {
+    width: 760px;
+    padding: 30px;
+    border-radius: 20px;
+    background: linear-gradient(180deg, #4a5160 0%, #343a46 100%);
+  }
+
+  .sorter-drawers {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .drawer {
+    height: 110px;
+    border-radius: 10px;
+    background: linear-gradient(180deg, #5d6577 0%, #4b5262 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .handle {
+    width: 90px;
+    height: 12px;
+    border-radius: 6px;
+    background: #c9ced8;
   }
 </style>

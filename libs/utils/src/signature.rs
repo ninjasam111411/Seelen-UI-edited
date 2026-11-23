@@ -57,3 +57,36 @@ pub fn verify_minisign(
 
     Ok(())
 }
+
+/// Signs data with a freshly generated (unencrypted) minisign key pair, for builds made without
+/// the official signing key. Returns the signature and the matching public key in the same
+/// base64 format that `verify_minisign` takes, so the build can embed it.
+pub fn sign_minisign_with_new_key(data: &[u8]) -> Result<(String, String), String> {
+    let key_pair = minisign::KeyPair::generate_unencrypted_keypair()
+        .map_err(|e| format!("Failed to generate key pair: {}", e))?;
+
+    let signature_box = minisign::sign(None, &key_pair.sk, Cursor::new(data), None, None)
+        .map_err(|e| format!("Failed to sign data: {}", e))?;
+
+    let public_key_box = key_pair
+        .pk
+        .to_box()
+        .map_err(|e| format!("Failed to encode public key: {}", e))?;
+    let public_key_base64 =
+        base64::engine::general_purpose::STANDARD.encode(public_key_box.to_string());
+
+    Ok((signature_box.to_string(), public_key_base64))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_key_signature_verifies() {
+        let data = b"SHA256SUMS content";
+        let (signature, public_key) = sign_minisign_with_new_key(data).unwrap();
+        assert!(verify_minisign(data, &signature, &public_key).is_ok());
+        assert!(verify_minisign(b"tampered", &signature, &public_key).is_err());
+    }
+}

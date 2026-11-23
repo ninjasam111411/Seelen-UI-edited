@@ -1,6 +1,9 @@
 use std::{fs::create_dir, path::PathBuf};
 
-use slu_utils::{checksums::CheckSums, signature::sign_minisign};
+use slu_utils::{
+    checksums::CheckSums,
+    signature::{sign_minisign, sign_minisign_with_new_key},
+};
 
 fn main() {
     let _ = create_dir("gen");
@@ -56,14 +59,30 @@ where
 }
 
 fn sign_sha256sums(path: &PathBuf) {
-    let key_base64 =
-        std::env::var("TAURI_SIGNING_PRIVATE_KEY").expect("TAURI_SIGNING_PRIVATE_KEY missing");
-    let password = std::env::var("TAURI_SIGNING_PRIVATE_KEY_PASSWORD")
-        .expect("TAURI_SIGNING_PRIVATE_KEY_PASSWORD missing");
+    println!("cargo:rerun-if-env-changed=TAURI_SIGNING_PRIVATE_KEY");
+    println!("cargo:rerun-if-env-changed=TAURI_SIGNING_PRIVATE_KEY_PASSWORD");
 
     let data = std::fs::read(path).expect("Failed to read SHA256SUMS file");
-    let signature = sign_minisign(&data, &key_base64, password).expect("Failed to sign data");
-
     let sig_path = path.with_extension("sig");
+
+    let official_key = std::env::var("TAURI_SIGNING_PRIVATE_KEY").ok();
+    let password = std::env::var("TAURI_SIGNING_PRIVATE_KEY_PASSWORD").ok();
+    let signature = match (official_key, password) {
+        (Some(key_base64), Some(password)) => {
+            sign_minisign(&data, &key_base64, password).expect("Failed to sign data")
+        }
+        _ => {
+            // Builds made without the official key (e.g. personal forks) sign with a key generated
+            // for this build, and embed its public key so the startup integrity check still works.
+            println!(
+                "cargo:warning=TAURI_SIGNING_PRIVATE_KEY not set: signing checksums with a key generated for this build"
+            );
+            let (signature, public_key) =
+                sign_minisign_with_new_key(&data).expect("Failed to sign data");
+            println!("cargo:rustc-env=SLU_CHECKSUMS_PUBLIC_KEY={public_key}");
+            signature
+        }
+    };
+
     std::fs::write(&sig_path, signature).expect("Failed to write signature");
 }
