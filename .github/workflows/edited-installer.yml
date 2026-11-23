@@ -1,0 +1,65 @@
+# Builds an unsigned x64 installer of this edited version and publishes it as the
+# "edited-latest" release, so it can be installed without building on a local PC.
+name: "Edited Installer"
+
+on:
+  push:
+    branches:
+      - better-version
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: edited-installer
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup
+        with:
+          rust-targets: x86_64-pc-windows-msvc
+          cache-key-prefix: rust-edited-installer
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build Hook DLL
+        run: cargo build --release -p sluhk
+
+      - name: Build installer
+        shell: bash
+        # the updater artifacts need the official Seelen signing key, so they are turned off
+        run: npx tauri build --ci --verbose --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Collect installer
+        id: collect
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path "target/release/bundle/nsis" -Filter "*-setup.exe" | Select-Object -First 1
+          if (-not $installer) { Write-Error "Installer not found"; exit 1 }
+          New-Item -ItemType Directory -Force -Path dist-installer | Out-Null
+          Copy-Item $installer.FullName "dist-installer/Seelen-UI-Edited-Setup.exe"
+          Get-ChildItem dist-installer
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seelen-ui-edited-installer
+          path: dist-installer/Seelen-UI-Edited-Setup.exe
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: edited-latest
+          name: Seelen UI Edited (latest build)
+          body: |
+            Unsigned build of the `better-version` branch (commit ${{ github.sha }}).
+            Windows may show "Windows protected your PC": click More info, then Run anyway.
+          prerelease: true
+          files: dist-installer/Seelen-UI-Edited-Setup.exe
