@@ -203,6 +203,11 @@ slu_commands_declaration! {
         @webview()
         @fallible()
         show_desktop(),
+    /// Minimizes every app window, or brings back the ones it minimized when none is open.
+    ToggleMinimizeAll =
+        @webview()
+        @fallible()
+        toggle_minimize_all(),
 
     RequestToUserInputShortcut =
         @async()

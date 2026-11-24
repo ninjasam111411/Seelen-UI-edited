@@ -11,8 +11,8 @@ use seelen_core::system_state::{FocusedApp, UserAppWindow, WindowAttention};
 use crate::{
     error::{Result, ResultLogExt},
     event_manager,
-    platform::window::Window,
-    utils::lock_free::SyncVec,
+    platform::window::{Window, WindowState},
+    utils::lock_free::{SyncVec, TracedMutex},
 };
 
 use super::domain::{AppsSysEvent, AppsSystem, UserAppWinEvent, WindowChange};
@@ -24,6 +24,8 @@ pub struct UserAppsManager {
     platform: Platform,
     /// The windows the user can interact with.
     pub interactable_windows: SyncVec<UserAppWindow>,
+    /// Windows minimized by [`Self::toggle_minimize_all`] (top-most first), to bring them back.
+    minimized_by_toggle: TracedMutex<Vec<isize>>,
 }
 
 event_manager!(UserAppsManager, UserAppWinEvent);
@@ -42,6 +44,7 @@ impl UserAppsManager {
         Self {
             platform: Platform::create(),
             interactable_windows: SyncVec::new(),
+            minimized_by_toggle: TracedMutex::new(Vec::new()),
         }
     }
 
@@ -208,6 +211,43 @@ impl UserAppsManager {
 
     pub fn toggle_desktop(&self) -> Result<()> {
         self.platform.toggle_desktop()
+    }
+
+    /// Minimizes the open windows of the current virtual desktop. When none is open, restores
+    /// the ones minimized by the last call, in their previous order.
+    pub fn toggle_minimize_all(&self) -> Result<()> {
+        let open: Vec<isize> = self
+            .interactable_windows
+            .to_vec()
+            .into_iter()
+            .filter(|w| {
+                let window = Window::from(w.hwnd);
+                window.is_window()
+                    && window.is_visible()
+                    && !window.is_minimized()
+                    && !window.is_cloaked()
+            })
+            .map(|w| w.hwnd)
+            .collect();
+
+        let mut minimized = self.minimized_by_toggle.lock();
+        if !open.is_empty() {
+            for hwnd in &open {
+                Window::from(*hwnd)
+                    .set_state_async(WindowState::Minimized)
+                    .log_error();
+            }
+            *minimized = open;
+            return Ok(());
+        }
+        // restored bottom-most first, so the top-most ends up in front again
+        for hwnd in minimized.drain(..).rev() {
+            let window = Window::from(hwnd);
+            if window.is_window() && window.is_minimized() {
+                window.set_state_async(WindowState::Restored).log_error();
+            }
+        }
+        Ok(())
     }
 }
 

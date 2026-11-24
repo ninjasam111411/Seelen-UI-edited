@@ -27,6 +27,7 @@ export enum SeelenCommand {
   ShowStartMenu = "show_start_menu",
   GetIcon = "get_icon",
   ShowDesktop = "show_desktop",
+  ToggleMinimizeAll = "toggle_minimize_all",
   RequestToUserInputShortcut = "request_to_user_input_shortcut",
   CheckForUpdates = "check_for_updates",
   InstallLastAvailableUpdate = "install_last_available_update",

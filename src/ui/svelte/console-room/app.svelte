@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Widget } from "@seelen-ui/lib";
+  import { invoke, SeelenCommand, Widget } from "@seelen-ui/lib";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import FileIcon from "libs/ui/svelte/components/Icon/FileIcon.svelte";
   import { t } from "./i18n/index.ts";
@@ -41,6 +41,12 @@
   let roomZoomed = $state(false);
 
   /** clicking the TV turns the console on: zoom into it, then show the home menu */
+  /** clicking the room anywhere but the TV: windows away / back, like a Mac */
+  function toggleWindows() {
+    if (roomZoomed) return;
+    invoke(SeelenCommand.ToggleMinimizeAll).catch(console.error);
+  }
+
   function turnOn() {
     if (roomZoomed) return;
     roomZoomed = true;
@@ -160,7 +166,7 @@
   onclick={onScreenClick}
 >
   {#if !home.menuOpen}
-    <RoomScene tvTitle={$t("title")} tvHint={$t("turn_on")} zoomed={roomZoomed} onTurnOn={turnOn} />
+    <RoomScene tvTitle={$t("title")} tvHint={$t("turn_on")} zoomed={roomZoomed} onTurnOn={turnOn} onBackground={toggleWindows} />
   {:else}
   <!-- background art of the selected game -->
   <div class="ch-art">

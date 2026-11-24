@@ -118,4 +118,11 @@ impl crate::tauri_handlers::Handlers {
         request_widget_permission(&webview, WidgetPerm::ManageAppWindows)?;
         UserAppsManager::instance().toggle_desktop()
     }
+
+    /// Like clicking the wallpaper on a Mac: every app window goes away, and comes back on the
+    /// next call if nothing was opened meanwhile.
+    pub fn toggle_minimize_all(webview: tauri::WebviewWindow) -> Result<()> {
+        request_widget_permission(&webview, WidgetPerm::ManageAppWindows)?;
+        UserAppsManager::instance().toggle_minimize_all()
+    }
 }

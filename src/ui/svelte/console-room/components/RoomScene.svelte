@@ -1,7 +1,8 @@
 <script lang="ts">
   // The room shown while the console is "off": drawn with CSS 3D on a 1920x1080 stage that is
   // scaled to cover the monitor. Clicking the TV turns the console on: the view zooms into the TV
-  // and the home menu opens.
+  // and the home menu opens. Clicking anywhere else minimizes every window (and brings them back
+  // on the next click), like clicking the wallpaper on a Mac.
 
   interface Props {
     tvTitle: string;
@@ -9,9 +10,10 @@
     /** zoomed into the TV (while turning on, or just before the room shows again) */
     zoomed: boolean;
     onTurnOn: () => void;
+    onBackground: () => void;
   }
 
-  let { tvTitle, tvHint, zoomed, onTurnOn }: Props = $props();
+  let { tvTitle, tvHint, zoomed, onTurnOn, onBackground }: Props = $props();
 
   /** TV center in the stage, from its 3D position (camera at z 900, perspective 960) */
   const TV_SCREEN_Y = -59;
@@ -105,7 +107,8 @@
   }
 </script>
 
-<div class="room-wallpaper" bind:this={container}>
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+<div class="room-wallpaper" bind:this={container} onclick={() => onBackground()}>
   <div
     class="zoom"
     class:zoomed
