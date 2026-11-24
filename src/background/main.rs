@@ -167,6 +167,7 @@ async fn setup(app_handle: &tauri::AppHandle<tauri::Wry>) -> Result<()> {
     warn_if_elevated(app_handle);
     telemetry::start_telemetry();
     backups::infrastructure::start_backup_sync();
+    utils::edited_updater::migrate_settings();
     utils::edited_updater::start();
     Ok(())
 }

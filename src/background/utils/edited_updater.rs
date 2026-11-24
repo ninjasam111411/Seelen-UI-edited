@@ -9,7 +9,12 @@
 
 use std::{path::PathBuf, time::Duration};
 
-use crate::{get_tokio_handle, utils::constants::SEELEN_COMMON};
+use seelen_core::state::HideMode;
+
+use crate::{
+    error::ResultLogExt, get_tokio_handle, state::FULL_STATE,
+    utils::constants::SEELEN_COMMON,
+};
 
 const RELEASE_URL: &str =
     "https://github.com/ninjasam111411/Seelen-UI-edited/releases/download/edited-latest";
@@ -17,6 +22,26 @@ const BUILD_SHA: Option<&str> = option_env!("SLU_EDITED_SHA");
 /// waits for the desktop to settle after login before checking
 const START_DELAY: Duration = Duration::from_secs(20);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
+/// One-time changes to settings saved by earlier edited builds, each recorded by a marker file so
+/// the user can change the setting back afterwards.
+pub fn migrate_settings() {
+    let marker = SEELEN_COMMON.app_data_dir().join("edited-migrated-toolbar-never-hide");
+    if marker.exists() {
+        return;
+    }
+    // the toolbar used to hide when a window covered it, which made it slide in and out every
+    // time the mouse reached the top of the screen (e.g. for browser tabs)
+    if FULL_STATE.load().settings.by_widget.fancy_toolbar.hide_mode != HideMode::Never {
+        FULL_STATE.rcu(|state| {
+            let mut state = state.cloned();
+            state.settings.by_widget.fancy_toolbar.hide_mode = HideMode::Never;
+            state
+        });
+        FULL_STATE.load().write_settings().log_error();
+    }
+    std::fs::write(&marker, b"done").log_error();
+}
 
 /// Checks once for a newer build in the background, and installs it if there is one.
 pub fn start() {
