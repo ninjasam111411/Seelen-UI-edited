@@ -452,25 +452,92 @@ pub fn normalize_name(name: &str) -> String {
         .collect()
 }
 
+/// Edition words at the end of game names, left out when comparing names, so "Grand Theft Auto V
+/// Legacy" finds the art of "Grand Theft Auto V" (and the other way around).
+const EDITION_SUFFIXES: &[&str] = &[
+    "game of the year edition",
+    "definitive edition",
+    "complete edition",
+    "ultimate edition",
+    "deluxe edition",
+    "standard edition",
+    "gold edition",
+    "anniversary edition",
+    "enhanced edition",
+    "special edition",
+    "directors cut",
+    "java edition",
+    "bedrock edition",
+    "for windows",
+    "launcher",
+    "player",
+    "goty edition",
+    "goty",
+    "legacy",
+    "enhanced",
+    "remastered",
+    "edition",
+    "hd",
+];
+
+/// The name without its edition words, trademark signs or text in brackets at the end.
+pub fn base_game_name(name: &str) -> String {
+    let mut base: String = name
+        .chars()
+        .filter(|c| !matches!(c, '™' | '®' | '©' | '\''))
+        .collect::<String>()
+        .to_lowercase();
+    loop {
+        let trimmed = base.trim_end_matches([' ', '-', ':', ',', '.']).to_owned();
+        let next = if trimmed.ends_with(')') || trimmed.ends_with(']') {
+            trimmed
+                .rfind(['(', '['])
+                .map_or(trimmed.clone(), |i| trimmed[..i].to_owned())
+        } else if let Some(suffix) = EDITION_SUFFIXES.iter().find(|s| {
+            trimmed.ends_with(*s) && {
+                // whole words only ("hd" must not cut "Overlord")
+                let rest = &trimmed[..trimmed.len() - s.len()];
+                rest.is_empty() || rest.ends_with([' ', '-', ':', ','])
+            }
+        }) {
+            trimmed[..trimmed.len() - suffix.len()].to_owned()
+        } else {
+            trimmed
+        };
+        if next == base || next.trim().is_empty() {
+            break;
+        }
+        base = next;
+    }
+    base.trim().to_owned()
+}
+
 /// Steam app id of a game from a Steam store search response, only when a result's name is
-/// the same as the game's (so a different game's art is never used).
+/// the same as the game's, or the same once edition words are left out (so a different game's
+/// art is never used).
 pub fn steam_search_match(search_json: &str, name: &str) -> Option<String> {
     let json: serde_json::Value = serde_json::from_str(search_json).ok()?;
     let wanted = normalize_name(name);
-    if wanted.is_empty() {
+    let wanted_base = normalize_name(&base_game_name(name));
+    if wanted.is_empty() || wanted_base.is_empty() {
         return None;
     }
-    json.get("items")?.as_array()?.iter().find_map(|item| {
-        let item_name = item.get("name")?.as_str()?;
-        if normalize_name(item_name) != wanted {
-            return None;
-        }
-        match item.get("id")? {
-            serde_json::Value::Number(n) => Some(n.to_string()),
-            serde_json::Value::String(s) => Some(s.clone()),
-            _ => None,
-        }
-    })
+    let items = json.get("items")?.as_array()?;
+    let id_of = |item: &serde_json::Value| match item.get("id")? {
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        serde_json::Value::String(s) => Some(s.clone()),
+        _ => None,
+    };
+    let name_of = |item: &serde_json::Value| item.get("name")?.as_str().map(str::to_owned);
+    items
+        .iter()
+        .find(|item| name_of(item).is_some_and(|n| normalize_name(&n) == wanted))
+        .or_else(|| {
+            items.iter().find(|item| {
+                name_of(item).is_some_and(|n| normalize_name(&base_game_name(&n)) == wanted_base)
+            })
+        })
+        .and_then(id_of)
 }
 
 /// Public Steam store image urls of an app: `(cover candidates, hero candidates, logo candidates)`.
@@ -480,9 +547,10 @@ pub fn steam_art_urls(appid: &str) -> (Vec<String>, Vec<String>, Vec<String>) {
         format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}"),
     ];
     (
-        bases
+        // old games have no portrait cover: their store header still makes a good tile
+        ["library_600x900.jpg", "library_600x900_2x.jpg", "header.jpg"]
             .iter()
-            .map(|b| format!("{b}/library_600x900.jpg"))
+            .flat_map(|file| bases.iter().map(move |b| format!("{b}/{file}")))
             .collect(),
         bases
             .iter()
@@ -861,6 +929,29 @@ mod tests {
             steam_icon_url(json, "730").as_deref(),
             Some("https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/730/8dbc71957312bbd3baea65848b545be9eae2a355.jpg")
         );
+    }
+
+    #[test]
+    fn edition_words_are_left_out() {
+        assert_eq!(base_game_name("Grand Theft Auto V Legacy"), "grand theft auto v");
+        assert_eq!(base_game_name("Grand Theft Auto V Enhanced"), "grand theft auto v");
+        assert_eq!(base_game_name("The Witcher 3: Wild Hunt - Game of the Year Edition"), "the witcher 3: wild hunt");
+        assert_eq!(base_game_name("Skyrim Special Edition"), "skyrim");
+        assert_eq!(base_game_name("Overlord"), "overlord");
+        assert_eq!(base_game_name("Portal (2007)"), "portal");
+        assert_eq!(base_game_name("The Sims™ 4"), "the sims 4");
+        assert_eq!(base_game_name("Roblox Player"), "roblox");
+        assert_eq!(base_game_name("Minecraft: Java Edition"), "minecraft");
+        assert_eq!(base_game_name("Minecraft Launcher"), "minecraft");
+        let json = r#"{"items":[
+            {"name":"Grand Theft Auto V Enhanced","id":3240220},
+            {"name":"Grand Theft Auto IV","id":12210}]}"#;
+        assert_eq!(steam_search_match(json, "Grand Theft Auto V Legacy").as_deref(), Some("3240220"));
+        let json = r#"{"items":[
+            {"name":"Grand Theft Auto V Enhanced","id":3240220},
+            {"name":"Grand Theft Auto V Legacy","id":271590}]}"#;
+        assert_eq!(steam_search_match(json, "Grand Theft Auto V Legacy").as_deref(), Some("271590"));
+        assert_eq!(steam_search_match(json, "Grand Theft Auto"), None);
     }
 
     #[test]

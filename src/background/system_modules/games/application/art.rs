@@ -20,14 +20,15 @@ use serde::{Deserialize, Serialize};
 use crate::{
     get_tokio_handle,
     system_modules::games::domain::{
-        steam_art_urls, steam_icon_url, steam_search_match, wikipedia_cover_match,
+        base_game_name, steam_art_urls, steam_icon_url, steam_search_match,
+        wikipedia_cover_match,
     },
     utils::{constants::SEELEN_COMMON, lock_free::TracedMutex},
 };
 
-const RETRY_AFTER_SECS: u64 = 7 * 24 * 60 * 60;
+const RETRY_AFTER_SECS: u64 = 24 * 60 * 60;
 /// Bumped when new kinds of art are looked up, so games checked before get them too.
-const ART_VERSION: u32 = 2;
+const ART_VERSION: u32 = 3;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 static INDEX: LazyLock<TracedMutex<HashMap<String, ArtEntry>>> =
@@ -166,13 +167,34 @@ async fn find_art(game: &InstalledGame, previous: ArtEntry) -> ArtEntry {
     entry
 }
 
+/// Searches Steam by the game's name, then by its name without edition words.
 async fn search_steam(name: &str) -> Option<String> {
-    let url = format!(
-        "https://store.steampowered.com/api/storesearch/?term={}&l=english&cc=US",
-        urlencoding::encode(name)
-    );
-    let body = get_text(&url).await?;
-    steam_search_match(&body, name)
+    for term in search_terms(name) {
+        let url = format!(
+            "https://store.steampowered.com/api/storesearch/?term={}&l=english&cc=US",
+            urlencoding::encode(&term)
+        );
+        if let Some(found) = get_text(&url).await.and_then(|b| steam_search_match(&b, name)) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// The name, and the name without edition words when it differs (in its original letter case,
+/// as Wikipedia titles are case sensitive).
+fn search_terms(name: &str) -> Vec<String> {
+    let base = base_game_name(name);
+    let mut terms = vec![name.to_owned()];
+    let cleaned: String = name
+        .chars()
+        .filter(|c| !matches!(c, '™' | '®' | '©' | '\''))
+        .collect();
+    let base_cased: String = cleaned.chars().take(base.chars().count()).collect();
+    if !base.is_empty() && base_cased.to_lowercase() != name.to_lowercase() {
+        terms.push(base_cased.trim().to_owned());
+    }
+    terms
 }
 
 /// The app's icon as the Steam client shows it, from the public store browse api.
@@ -199,6 +221,15 @@ async fn get_text(url: &str) -> Option<String> {
 /// Cover art from the game's Wikipedia page: the page with the game's exact name (or with
 /// "(video game)" after it), else a search result with that name.
 async fn search_wikipedia(name: &str) -> Option<String> {
+    for term in search_terms(name) {
+        if let Some(found) = search_wikipedia_for(&term).await {
+            return Some(found);
+        }
+    }
+    None
+}
+
+async fn search_wikipedia_for(name: &str) -> Option<String> {
     let api = "https://en.wikipedia.org/w/api.php?action=query&format=json&redirects=1\
                &prop=pageimages|description&piprop=thumbnail&pithumbsize=600&pilicense=any";
     let by_title = format!(
