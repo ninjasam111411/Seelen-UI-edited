@@ -206,7 +206,7 @@ slu_commands_declaration! {
     ToggleMinimizeAll =
         @webview()
         @fallible()
-        toggle_minimize_all(),
+        toggle_minimize_all(monitor_id: Option<MonitorId>),
 
     RequestToUserInputShortcut =
         @async()

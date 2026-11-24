@@ -5,7 +5,9 @@ use std::{collections::HashMap, sync::Once};
 
 use seelen_core::{
     handlers::SeelenEvent,
-    system_state::{FocusedApp, UserAppWindow, UserAppWindowColors, UserAppWindowPreview},
+    system_state::{
+        FocusedApp, MonitorId, UserAppWindow, UserAppWindowColors, UserAppWindowPreview,
+    },
 };
 
 use crate::{
@@ -119,10 +121,13 @@ impl crate::tauri_handlers::Handlers {
         UserAppsManager::instance().toggle_desktop()
     }
 
-    /// Like clicking the wallpaper on a Mac: every app window goes away, and comes back on the
-    /// next call if nothing was opened meanwhile.
-    pub fn toggle_minimize_all(webview: tauri::WebviewWindow) -> Result<()> {
+    /// Like clicking the wallpaper on a Mac: the app windows (of one monitor, if given) go away,
+    /// and come back on the next call if nothing was opened meanwhile.
+    pub fn toggle_minimize_all(
+        webview: tauri::WebviewWindow,
+        monitor_id: Option<MonitorId>,
+    ) -> Result<()> {
         request_widget_permission(&webview, WidgetPerm::ManageAppWindows)?;
-        UserAppsManager::instance().toggle_minimize_all()
+        UserAppsManager::instance().toggle_minimize_all(monitor_id.as_ref())
     }
 }

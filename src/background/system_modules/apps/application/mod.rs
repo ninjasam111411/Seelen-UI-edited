@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use seelen_core::system_state::{FocusedApp, UserAppWindow, WindowAttention};
+use seelen_core::system_state::{FocusedApp, MonitorId, UserAppWindow, WindowAttention};
 
 use crate::{
     error::{Result, ResultLogExt},
@@ -213,13 +213,14 @@ impl UserAppsManager {
         self.platform.toggle_desktop()
     }
 
-    /// Minimizes the open windows of the current virtual desktop. When none is open, restores
-    /// the ones minimized by the last call, in their previous order.
-    pub fn toggle_minimize_all(&self) -> Result<()> {
+    /// Minimizes the open windows of the current virtual desktop (on `monitor`, if given). When
+    /// none is open, restores the ones minimized by the last call, in their previous order.
+    pub fn toggle_minimize_all(&self, monitor: Option<&MonitorId>) -> Result<()> {
         let open: Vec<isize> = self
             .interactable_windows
             .to_vec()
             .into_iter()
+            .filter(|w| monitor.is_none_or(|m| &w.monitor == m))
             .filter(|w| {
                 let window = Window::from(w.hwnd);
                 window.is_window()

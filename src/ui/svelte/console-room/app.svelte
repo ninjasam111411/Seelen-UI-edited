@@ -3,6 +3,7 @@
   import { invoke, SeelenCommand, Widget } from "@seelen-ui/lib";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import FileIcon from "libs/ui/svelte/components/Icon/FileIcon.svelte";
+  import { monitors } from "libs/ui/svelte/runes/monitors.svelte.ts";
   import { t } from "./i18n/index.ts";
   import { DRAWERS, type Disc, home } from "./state.svelte.ts";
   import DiscFace from "./components/DiscFace.svelte";
@@ -39,10 +40,12 @@
   let roomZoomed = $state(false);
 
   /** clicking the TV turns the console on: zoom into it, then show the home menu */
-  /** clicking the room anywhere but the TV: windows away / back, like a Mac */
+  /** clicking the room anywhere but the TV: the windows on its monitor away / back, like a Mac */
   function toggleWindows() {
     if (roomZoomed) return;
-    invoke(SeelenCommand.ToggleMinimizeAll).catch(console.error);
+    invoke(SeelenCommand.ToggleMinimizeAll, { monitorId: monitors.primaryMonitor?.id ?? null }).catch(
+      console.error,
+    );
   }
 
   function turnOn() {
@@ -177,6 +180,12 @@
   {:else}
   <!-- background art of the selected game -->
   <div class="ch-art">
+    <!-- slow colored lights in the game's color, seen through and around its art -->
+    <div class="ch-aurora">
+      <div class="ch-aurora-blob ch-aurora-a"></div>
+      <div class="ch-aurora-blob ch-aurora-b"></div>
+      <div class="ch-aurora-blob ch-aurora-c"></div>
+    </div>
     {#key art?.path}
       {#if art}
         <img
@@ -190,7 +199,11 @@
       {/if}
     {/key}
     <div class="ch-art-shade"></div>
+    <div class="ch-grain"></div>
   </div>
+
+  <!-- light burst when the console turns on -->
+  <div class="ch-boot"></div>
 
   <div class="ch-content">
     <header class="ch-header">
