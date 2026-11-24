@@ -65,6 +65,23 @@ const NON_GAME_EXE_PARTS: &[&str] = &[
     "report",
     "updater",
     "helper",
+    "language",
+    "dlc",
+    "toggler",
+    "changer",
+    "quicksfv",
+    "dxwebsetup",
+    "ndp4",
+    "_be.exe",
+    "-cmd.exe",
+    "-room.exe",
+    "benchmark",
+];
+
+/// Short names people use for games in folder names, written out so the art lookup finds them.
+const NAME_ABBREVIATIONS: &[(&str, &str)] = &[
+    ("totk", "Tears of the Kingdom"),
+    ("botw", "Breath of the Wild"),
 ];
 
 /// Files that a game engine or a game store SDK leaves next to the game executable.
@@ -194,6 +211,7 @@ pub fn steam_game(
         hero,
         umid: None,
         executable: None,
+        launch_args: None,
     }
 }
 
@@ -208,6 +226,7 @@ pub fn store_game(umid: &str, name: &str) -> InstalledGame {
         hero: None,
         umid: Some(umid.to_owned()),
         executable: None,
+        launch_args: None,
     }
 }
 
@@ -230,6 +249,7 @@ pub fn shortcut_game(
         hero: None,
         umid: umid.map(str::to_owned),
         executable: target.map(Path::to_path_buf),
+        launch_args: None,
     })
 }
 
@@ -270,6 +290,7 @@ pub fn local_game(executable: &Path, name: &str, source: GameSource) -> Installe
         hero: None,
         umid: None,
         executable: Some(executable.to_path_buf()),
+        launch_args: None,
     }
 }
 
@@ -285,6 +306,7 @@ pub fn ubisoft_game(id: &str, install_dir: &Path) -> Option<InstalledGame> {
         hero: None,
         umid: None,
         executable: None,
+        launch_args: None,
     })
 }
 
@@ -331,17 +353,85 @@ pub fn pick_game_exe(folder_name: &str, entries: &[String]) -> Option<String> {
     is_game_folder(candidate, entries).then(|| (*candidate).clone())
 }
 
-/// A readable name from an executable or folder name.
+/// A readable name from an executable or folder name: `_`/`-` become spaces, ` - ` becomes `: `
+/// and known abbreviations are written out.
 pub fn display_name_from(raw: &str) -> String {
     let base = raw
         .trim_end_matches(".exe")
         .trim_end_matches(".EXE")
-        .trim_end_matches("-Win64-Shipping");
+        .trim_end_matches("-Win64-Shipping")
+        .replace(" - ", ": ");
     let spaced: String = base
         .chars()
         .map(|c| if c == '_' || c == '-' { ' ' } else { c })
         .collect();
-    spaced.split_whitespace().collect::<Vec<_>>().join(" ")
+    spaced
+        .split_whitespace()
+        .map(|word| {
+            NAME_ABBREVIATIONS
+                .iter()
+                .find(|(short, _)| word.eq_ignore_ascii_case(short))
+                .map_or(word, |(_, long)| long)
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The program of a folder kept in a games folder (where every folder is a game, so no engine
+/// files are needed): the engine-detected exe, the exe named like the folder, a `Play...` exe,
+/// a launcher, or else the biggest exe. `files` are lower case file names with their size.
+pub fn pick_trusted_exe(folder_name: &str, files: &[(String, u64)]) -> Option<String> {
+    let names: Vec<String> = files.iter().map(|(name, _)| name.clone()).collect();
+    if let Some(exe) = pick_game_exe(folder_name, &names) {
+        return Some(exe);
+    }
+    let exes: Vec<&(String, u64)> = files.iter().filter(|(n, _)| !is_non_game_exe(n)).collect();
+    let stem = |name: &str| name.trim_end_matches(".exe").to_owned();
+    let folder = normalize_name(folder_name);
+    exes.iter()
+        .find(|(n, _)| normalize_name(&stem(n)) == folder)
+        .or_else(|| exes.iter().find(|(n, _)| n.starts_with("play")))
+        .or_else(|| exes.iter().find(|(n, _)| n.contains("launcher")))
+        .or_else(|| exes.iter().max_by_key(|(_, size)| *size))
+        .map(|(n, _)| n.clone())
+}
+
+/// Arguments that make Cemu (Wii U emulator) start a game right away.
+pub fn cemu_args(game_file: &Path) -> String {
+    format!("-g \"{}\"", game_file.to_string_lossy())
+}
+
+/// Cover image url from a Wikipedia API response (`prop=pageimages|description`), only from a page
+/// named like the game whose description says it is a game (so other art is never used).
+pub fn wikipedia_cover_match(api_json: &str, name: &str) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_str(api_json).ok()?;
+    let wanted = normalize_name(name);
+    if wanted.is_empty() {
+        return None;
+    }
+    let pages = json.get("query")?.get("pages")?;
+    let pages: Vec<&serde_json::Value> = match pages {
+        serde_json::Value::Object(map) => map.values().collect(),
+        serde_json::Value::Array(list) => list.iter().collect(),
+        _ => return None,
+    };
+    let mut matching: Vec<&serde_json::Value> = pages
+        .into_iter()
+        .filter(|page| {
+            page.get("title")
+                .and_then(|t| t.as_str())
+                .map(|t| t.trim_end_matches(" (video game)"))
+                .is_some_and(|t| normalize_name(t) == wanted)
+                && page
+                    .get("description")
+                    .and_then(|d| d.as_str())
+                    .is_some_and(|d| d.to_lowercase().contains("game"))
+        })
+        .collect();
+    matching.sort_by_key(|page| page.get("index").and_then(|i| i.as_u64()).unwrap_or(0));
+    matching.into_iter().find_map(|page| {
+        Some(page.get("thumbnail")?.get("source")?.as_str()?.to_owned())
+    })
 }
 
 /// Lower case letters and digits only, to compare names written differently.
@@ -430,6 +520,7 @@ pub fn epic_game(manifest_json: &str) -> Option<InstalledGame> {
         hero: None,
         umid: None,
         executable,
+        launch_args: None,
     })
 }
 
@@ -599,6 +690,104 @@ mod tests {
     fn readable_names() {
         assert_eq!(display_name_from("Hollow_Knight.exe"), "Hollow Knight");
         assert_eq!(display_name_from("MyGame-Win64-Shipping.exe"), "MyGame");
+        assert_eq!(
+            display_name_from("The Legend of Zelda - TotK"),
+            "The Legend of Zelda: Tears of the Kingdom"
+        );
+        assert_eq!(
+            display_name_from("The Legend of Zelda - Breath of the Wild"),
+            "The Legend of Zelda: Breath of the Wild"
+        );
+    }
+
+    fn sized(list: &[(&str, u64)]) -> Vec<(String, u64)> {
+        list.iter().map(|(n, s)| (n.to_lowercase(), *s)).collect()
+    }
+
+    #[test]
+    fn picks_the_program_of_folders_in_a_games_folder() {
+        // GTA V: the Play exe, not the language tools, BattlEye or uninstaller
+        let gta = sized(&[
+            ("GTA V Language Changer.exe", 777216),
+            ("GTA5_BE.exe", 1473144),
+            ("GTA5.exe", 49217144),
+            ("GTAVLanguageSelect.exe", 543272),
+            ("GTAVLauncher.exe", 543272),
+            ("PlayGTAV.exe", 98816),
+            ("unins000.exe", 1515889),
+            ("bink2w64.dll", 1),
+        ]);
+        assert_eq!(
+            pick_trusted_exe("Grand Theft Auto V Legacy", &gta).as_deref(),
+            Some("playgtav.exe")
+        );
+        // Sims 4: the launcher, not the dlc and language tools
+        let sims = sized(&[
+            ("dlc-toggler.exe", 951296),
+            ("dlc-uninstaller.exe", 957440),
+            ("EASetup.exe", 33792),
+            ("language-changer.exe", 946688),
+            ("Launcher.exe", 1880576),
+            ("sims-4-updater-v2.4.12.exe", 24580232),
+            ("unins000.exe", 1515889),
+        ]);
+        assert_eq!(pick_trusted_exe("The Sims 4", &sims).as_deref(), Some("launcher.exe"));
+        // emulator bundle: the launcher, not the emulator tools
+        let totk = sized(&[
+            ("Launcher.exe", 335872),
+            ("QtWebEngineProcess.exe", 591344),
+            ("yuzu_ea-cmd.exe", 16134144),
+            ("yuzu_ea-room.exe", 634880),
+            ("yuzu.exe", 22603264),
+            ("unins000.exe", 1515889),
+        ]);
+        assert_eq!(
+            pick_trusted_exe("The Legend of Zelda - TotK", &totk).as_deref(),
+            Some("launcher.exe")
+        );
+        // Unity game: found by its engine files
+        let house = sized(&[
+            ("GameAssembly.dll", 1),
+            ("HouseParty.exe", 666624),
+            ("UnityCrashHandler64.exe", 1185200),
+            ("UnityPlayer.dll", 1),
+            ("unins000.exe", 1515889),
+        ]);
+        assert_eq!(pick_trusted_exe("House Party", &house).as_deref(), Some("houseparty.exe"));
+        // nothing but an uninstaller
+        assert_eq!(pick_trusted_exe("Poppy Playtime", &sized(&[("unins000.exe", 1)])), None);
+    }
+
+    #[test]
+    fn wikipedia_cover_needs_the_same_name() {
+        let json = r#"{"query":{"pages":{
+            "1":{"title":"The Legend of Zelda: Tears of the Kingdom","index":2,
+                 "description":"2023 video game",
+                 "thumbnail":{"source":"https://upload.wikimedia.org/totk.jpg"}},
+            "2":{"title":"The Legend of Zelda","index":1,"description":"Video game series",
+                 "thumbnail":{"source":"https://upload.wikimedia.org/zelda.jpg"}}}}}"#;
+        assert_eq!(
+            wikipedia_cover_match(json, "The Legend of Zelda: Tears of the Kingdom").as_deref(),
+            Some("https://upload.wikimedia.org/totk.jpg")
+        );
+        assert_eq!(wikipedia_cover_match(json, "Breath of the Wild"), None);
+        let json = r#"{"query":{"pages":{
+            "8":{"title":"House party","description":"Party held at a home",
+                 "thumbnail":{"source":"https://upload.wikimedia.org/party.jpg"}},
+            "9":{"title":"House Party (video game)","description":"2022 video game",
+                 "thumbnail":{"source":"https://upload.wikimedia.org/hp.jpg"}}}}}"#;
+        assert_eq!(
+            wikipedia_cover_match(json, "House Party").as_deref(),
+            Some("https://upload.wikimedia.org/hp.jpg")
+        );
+    }
+
+    #[test]
+    fn cemu_starts_the_game() {
+        assert_eq!(
+            cemu_args(Path::new("C:/Games/BOTW/cemu/games/BOTW_EUR/code/U-King.rpx")),
+            "-g \"C:/Games/BOTW/cemu/games/BOTW_EUR/code/U-King.rpx\""
+        );
     }
 
     #[test]

@@ -20,6 +20,9 @@ pub struct InstalledGame {
     pub umid: Option<String>,
     /// executable of the game, used to show its icon
     pub executable: Option<PathBuf>,
+    /// arguments for `launch` when it is a program (e.g. the game file for an emulator)
+    #[serde(default)]
+    pub launch_args: Option<String>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]

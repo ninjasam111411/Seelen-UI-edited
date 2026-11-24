@@ -1,7 +1,8 @@
 //! Cover art for games that don't have any on disk.
 //!
 //! Steam games use their public store images; other games are looked up on the Steam store by
-//! name, and only an exact name match is used. Images are downloaded once into the cache folder
+//! name, then on Wikipedia (games not sold on Steam, e.g. console games played in an emulator).
+//! Only an exact name match is used. Images are downloaded once into the cache folder
 //! and remembered in an index, so each game is looked up only once (failures are retried after a
 //! week). Everything runs in the background: the next games scan picks up what was found.
 
@@ -17,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     get_tokio_handle,
-    system_modules::games::domain::{steam_art_urls, steam_search_match},
+    system_modules::games::domain::{steam_art_urls, steam_search_match, wikipedia_cover_match},
     utils::{constants::SEELEN_COMMON, lock_free::TracedMutex},
 };
 
@@ -31,6 +32,8 @@ static PENDING: LazyLock<TracedMutex<HashSet<String>>> =
 static HTTP: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)
+        // Wikipedia refuses requests without one
+        .user_agent("SeelenUI-Edited/1.0 (https://github.com/ninjasam111411/Seelen-UI-edited)")
         .build()
         .unwrap_or_default()
 });
@@ -99,19 +102,53 @@ async fn find_art(game: &InstalledGame) -> ArtEntry {
         checked_at: now_secs(),
         ..Default::default()
     };
-    let Some(appid) = appid else {
-        return entry;
-    };
-
     let dir = art_dir();
     if std::fs::create_dir_all(&dir).is_err() {
         return entry;
     }
     let file_id = sanitize(&game.id);
-    let (covers, heroes) = steam_art_urls(&appid);
-    entry.cover = download_first(&covers, &dir.join(format!("{file_id}_cover.jpg"))).await;
-    entry.hero = download_first(&heroes, &dir.join(format!("{file_id}_hero.jpg"))).await;
+    let cover_path = dir.join(format!("{file_id}_cover.jpg"));
+    if let Some(appid) = appid {
+        let (covers, heroes) = steam_art_urls(&appid);
+        entry.cover = download_first(&covers, &cover_path).await;
+        entry.hero = download_first(&heroes, &dir.join(format!("{file_id}_hero.jpg"))).await;
+    }
+    if entry.cover.is_none() && game.source != GameSource::Steam {
+        if let Some(url) = search_wikipedia(&game.name).await {
+            entry.cover = download_first(&[url], &cover_path).await;
+        }
+    }
     entry
+}
+
+/// Cover art from the game's Wikipedia page: the page with the game's exact name (or with
+/// "(video game)" after it), else a search result with that name.
+async fn search_wikipedia(name: &str) -> Option<String> {
+    let api = "https://en.wikipedia.org/w/api.php?action=query&format=json&redirects=1\
+               &prop=pageimages|description&piprop=thumbnail&pithumbsize=600&pilicense=any";
+    let by_title = format!(
+        "{api}&titles={}",
+        urlencoding::encode(&format!("{name}|{name} (video game)"))
+    );
+    let by_search = format!(
+        "{api}&generator=search&gsrlimit=5&gsrsearch={}",
+        urlencoding::encode(&format!("{name} video game"))
+    );
+    for url in [by_title, by_search] {
+        let Ok(response) = HTTP.get(url).send().await else {
+            continue;
+        };
+        if !response.status().is_success() {
+            continue;
+        }
+        let Ok(body) = response.text().await else {
+            continue;
+        };
+        if let Some(found) = wikipedia_cover_match(&body, name) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 async fn search_steam(name: &str) -> Option<String> {

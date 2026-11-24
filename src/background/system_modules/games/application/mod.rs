@@ -11,8 +11,8 @@ use std::{
 use seelen_core::system_state::{GameSource, InstalledGame};
 
 use super::domain::{
-    GamesSystem, display_name_from, epic_game, is_game_folder, is_known_game_name,
-    is_known_store_game, is_non_game_name, local_game, pick_game_exe, pick_steam_cover,
+    GamesSystem, cemu_args, display_name_from, epic_game, is_game_folder, is_known_game_name,
+    is_known_store_game, is_non_game_name, local_game, pick_game_exe, pick_steam_cover, pick_trusted_exe,
     pick_steam_hero, shortcut_game, steam_app_manifest, steam_game, steam_library_paths,
     store_game, ubisoft_game,
 };
@@ -163,7 +163,8 @@ fn folder_entries(dir: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Each subfolder of `root` that holds a game (directly or one folder deeper) becomes a game.
+/// Each subfolder of `root` (a games folder) is a game: its program is found directly in it, in an
+/// emulator bundle, or one folder deeper (launcher subfolders, zip/itch.io downloads).
 fn scan_game_folders(root: &Path, source: GameSource) -> Vec<InstalledGame> {
     let Ok(children) = std::fs::read_dir(root) else {
         return Vec::new();
@@ -174,34 +175,100 @@ fn scan_game_folders(root: &Path, source: GameSource) -> Vec<InstalledGame> {
         if !dir.is_dir() {
             continue;
         }
-        let name = child.file_name().to_string_lossy().to_string();
-        let found = find_game_exe(&dir, &name).or_else(|| {
-            // itch.io and zip downloads often add one more folder level
-            std::fs::read_dir(&dir)
-                .ok()?
-                .flatten()
-                .take(20)
-                .find_map(|inner| {
-                    let inner_dir = inner.path();
-                    inner_dir
-                        .is_dir()
-                        .then(|| find_game_exe(&inner_dir, &inner.file_name().to_string_lossy()))
-                        .flatten()
-                })
-        });
-        if let Some(exe) = found {
-            games.push(local_game(&exe, &display_name_from(&name), source));
+        let name = display_name_from(&child.file_name().to_string_lossy());
+        if let Some(game) = folder_game(&dir, &name, source) {
+            games.push(game);
         }
     }
     games
 }
 
+fn folder_game(dir: &Path, name: &str, source: GameSource) -> Option<InstalledGame> {
+    let folder_name = dir.file_name()?.to_string_lossy().to_string();
+    if let Some(exe) = find_game_exe(dir, &folder_name) {
+        return Some(local_game(&exe, name, source));
+    }
+    if let Some((cemu, game_file)) = find_cemu_game(dir) {
+        let mut game = local_game(&cemu, name, source);
+        game.launch_args = Some(cemu_args(&game_file));
+        return Some(game);
+    }
+    if let Some(exe) = find_trusted_exe(dir, &folder_name) {
+        return Some(local_game(&exe, name, source));
+    }
+
+    let subdirs: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .take(40)
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    let sub_name = |p: &PathBuf| p.file_name().map(|n| n.to_string_lossy().to_string());
+    // a game with several parts and its own launcher (e.g. Poppy Playtime chapters)
+    let launcher = subdirs
+        .iter()
+        .filter(|p| sub_name(p).is_some_and(|n| n.to_lowercase().contains("launcher")))
+        .find_map(|p| find_trusted_exe(p, &sub_name(p)?));
+    // zip and itch.io downloads often add one more folder level
+    let exe = launcher.or_else(|| {
+        subdirs
+            .iter()
+            .find_map(|p| find_game_exe(p, &sub_name(p)?))
+    })?;
+    Some(local_game(&exe, name, source))
+}
+
 fn find_game_exe(dir: &Path, folder_name: &str) -> Option<PathBuf> {
     let entries = folder_entries(dir);
     let exe_lower = pick_game_exe(folder_name, &entries)?;
-    // entries are lower case: find the real file name
+    real_file(dir, &exe_lower)
+}
+
+fn find_trusted_exe(dir: &Path, folder_name: &str) -> Option<PathBuf> {
+    let files: Vec<(String, u64)> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .take(MAX_FOLDER_ENTRIES)
+        .map(|e| {
+            let size = e.metadata().map(|m| if m.is_file() { m.len() } else { 0 });
+            (e.file_name().to_string_lossy().to_lowercase(), size.unwrap_or(0))
+        })
+        .collect();
+    let exe_lower = pick_trusted_exe(folder_name, &files)?;
+    real_file(dir, &exe_lower)
+}
+
+/// The file of a folder with this lower case name (entries are compared in lower case).
+fn real_file(dir: &Path, name_lower: &str) -> Option<PathBuf> {
     std::fs::read_dir(dir).ok()?.flatten().find_map(|e| {
-        (e.file_name().to_string_lossy().to_lowercase() == exe_lower).then(|| e.path())
+        (e.file_name().to_string_lossy().to_lowercase() == name_lower).then(|| e.path())
+    })
+}
+
+/// Cemu (Wii U emulator) bundled with a game: `Cemu.exe` in the folder or a subfolder, and the
+/// game in its `games/<game>/code/*.rpx`.
+fn find_cemu_game(dir: &Path) -> Option<(PathBuf, PathBuf)> {
+    let mut places = vec![dir.to_path_buf()];
+    places.extend(
+        std::fs::read_dir(dir)
+            .ok()?
+            .flatten()
+            .take(40)
+            .map(|e| e.path())
+            .filter(|p| p.is_dir()),
+    );
+    places.into_iter().find_map(|place| {
+        let cemu = real_file(&place, "cemu.exe")?;
+        let games = std::fs::read_dir(place.join("games")).ok()?;
+        let game_file = games.flatten().take(20).find_map(|game| {
+            std::fs::read_dir(game.path().join("code"))
+                .ok()?
+                .flatten()
+                .map(|e| e.path())
+                .find(|p| p.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("rpx")))
+        })?;
+        Some((cemu, game_file))
     })
 }
 

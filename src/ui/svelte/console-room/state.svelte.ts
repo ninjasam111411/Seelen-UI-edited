@@ -9,7 +9,7 @@ import { locale, t } from "./i18n/index.ts";
 
 export type LaunchSpec =
   | { type: "uri"; uri: string }
-  | { type: "exe"; path: string }
+  | { type: "exe"; path: string; args?: string | null }
   | { type: "app"; path: string; umid: string | null; displayName: string }
   | { type: "file"; path: string };
 
@@ -135,7 +135,9 @@ const gameDiscs = $derived(
       iconPath: game.executable ?? (game.source === "Shortcut" ? game.launch : null),
       iconUmid: game.umid ?? null,
       // downloaded games are started from their own folder, as many need it
-      launch: /\.exe$/i.test(game.launch) ? { type: "exe", path: game.launch } : { type: "uri", uri: game.launch },
+      launch: /\.exe$/i.test(game.launch)
+        ? { type: "exe", path: game.launch, args: game.launchArgs ?? null }
+        : { type: "uri", uri: game.launch },
       burned: false,
     }),
   ),
@@ -219,7 +221,7 @@ function runLaunch(launch: LaunchSpec): Promise<unknown> {
     case "exe":
       return invoke(SeelenCommand.Run, {
         program: launch.path,
-        args: null,
+        args: launch.args ?? null,
         workingDir: launch.path.replace(/[\\/][^\\/]*$/, ""),
         elevated: false,
       });
