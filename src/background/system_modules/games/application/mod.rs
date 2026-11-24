@@ -13,7 +13,7 @@ use seelen_core::system_state::{GameSource, InstalledGame};
 use super::domain::{
     GamesSystem, cemu_args, display_name_from, epic_game, is_game_folder, is_known_game_name,
     is_known_store_game, is_non_game_name, local_game, pick_game_exe, pick_steam_cover, pick_trusted_exe,
-    pick_steam_hero, shortcut_game, steam_app_manifest, steam_game, steam_library_paths,
+    pick_folder_icon, pick_steam_hero, pick_steam_icon, pick_steam_logo, shortcut_game, steam_app_manifest, steam_game, steam_library_paths,
     store_game, ubisoft_game,
 };
 use crate::{system_modules::start::StartMenuManager, utils::lock_free::TracedMutex};
@@ -176,7 +176,8 @@ fn scan_game_folders(root: &Path, source: GameSource) -> Vec<InstalledGame> {
             continue;
         }
         let name = display_name_from(&child.file_name().to_string_lossy());
-        if let Some(game) = folder_game(&dir, &name, source) {
+        if let Some(mut game) = folder_game(&dir, &name, source) {
+            game.icon = find_folder_icon(&dir, game.executable.as_deref());
             games.push(game);
         }
     }
@@ -237,6 +238,20 @@ fn find_trusted_exe(dir: &Path, folder_name: &str) -> Option<PathBuf> {
         .collect();
     let exe_lower = pick_trusted_exe(folder_name, &files)?;
     real_file(dir, &exe_lower)
+}
+
+/// An icon the game ships (e.g. `game.ico`): in its folder, or next to its program.
+fn find_folder_icon(dir: &Path, exe: Option<&Path>) -> Option<PathBuf> {
+    let mut places = vec![dir.to_path_buf()];
+    if let Some(exe_dir) = exe.and_then(Path::parent) {
+        if exe_dir != dir {
+            places.push(exe_dir.to_path_buf());
+        }
+    }
+    places.into_iter().find_map(|place| {
+        let icon = pick_folder_icon(&folder_entries(&place))?;
+        real_file(&place, &icon)
+    })
 }
 
 /// The file of a folder with this lower case name (entries are compared in lower case).
@@ -308,7 +323,16 @@ fn scan_steam(root: &Path) -> Vec<InstalledGame> {
                     let flat = cache.join(format!("{appid}_library_hero.jpg"));
                     flat.exists().then_some(flat)
                 });
-                games.push(steam_game(&appid, &name, cover, hero));
+                let mut game = steam_game(&appid, &name, cover, hero);
+                game.logo = pick_steam_logo(&files).or_else(|| {
+                    let flat = cache.join(format!("{appid}_logo.png"));
+                    flat.exists().then_some(flat)
+                });
+                game.icon = pick_steam_icon(&files).or_else(|| {
+                    let flat = cache.join(format!("{appid}_icon.jpg"));
+                    flat.exists().then_some(flat)
+                });
+                games.push(game);
             }
         }
     }

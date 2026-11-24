@@ -22,6 +22,10 @@ export interface Disc {
   cover: string | null;
   /** wide background art on disk */
   hero: string | null;
+  /** icon image on disk (the game's own or downloaded), better than the program's icon */
+  icon?: string | null;
+  /** transparent title logo on disk */
+  logo?: string | null;
   /** path/umid used to show the app or file icon */
   iconPath: string | null;
   iconUmid: string | null;
@@ -132,6 +136,8 @@ const gameDiscs = $derived(
       source: SOURCE_LABELS[game.source] ?? game.source,
       cover: game.cover ?? null,
       hero: game.hero ?? null,
+      icon: game.icon ?? null,
+      logo: game.logo ?? null,
       iconPath: game.executable ?? (game.source === "Shortcut" ? game.launch : null),
       iconUmid: game.umid ?? null,
       // downloaded games are started from their own folder, as many need it

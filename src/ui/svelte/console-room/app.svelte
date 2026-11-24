@@ -23,8 +23,6 @@
     null,
   );
   let failedArt = $state<Record<string, boolean>>({});
-  /** a drag just ended: the click that follows must not open or close the menu */
-  let justDragged = false;
 
   const artDisc = $derived(home.phase !== "idle" && home.playing ? home.playing : home.selected);
   const art = $derived.by(() => {
@@ -64,19 +62,34 @@
     wasMenuOpen = open;
   });
 
-  /** in the menu, clicking anything that isn't a control goes back to the room */
-  function onScreenClick(e: MouseEvent) {
-    if (justDragged || home.phase !== "idle" || !home.menuOpen) return;
-    const target = e.target as HTMLElement;
-    if (target.closest("button, [data-drop], .ch-row, .ch-library, [role='button']")) return;
-    home.closeMenu();
+  // only the "Back to room" button leaves the menu; Esc closes the library, arrows pick a game
+  function onKeyDown(e: KeyboardEvent) {
+    if (e.key === "Escape" && home.libraryOpen) {
+      home.closeLibrary();
+      return;
+    }
+    if (!home.menuOpen || home.libraryOpen || home.phase !== "idle") return;
+    const list = home.discs;
+    if (list.length === 0) return;
+    const index = Math.max(
+      0,
+      list.findIndex((d) => d.id === home.selected?.id),
+    );
+    if (e.key === "ArrowRight") home.select(list[Math.min(list.length - 1, index + 1)]!.id);
+    else if (e.key === "ArrowLeft") home.select(list[Math.max(0, index - 1)]!.id);
+    else if (e.key === "Enter" && home.selected) home.play(home.selected);
   }
 
-  function onKeyDown(e: KeyboardEvent) {
-    if (e.key !== "Escape") return;
-    if (home.libraryOpen) home.closeLibrary();
-    else if (home.menuOpen) home.closeMenu();
-  }
+  /** clock in the corner, like a console */
+  let now = $state(new Date());
+  onMount(() => {
+    const timer = setInterval(() => (now = new Date()), 10_000);
+    return () => clearInterval(timer);
+  });
+  const clock = $derived(now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+
+  let failedLogo = $state<Record<string, boolean>>({});
+  let failedIcon = $state<Record<string, boolean>>({});
 
   function onTilePointerDown(e: PointerEvent, disc: Disc) {
     if (e.button !== 0) return;
@@ -96,10 +109,6 @@
     const press = pressed;
     pressed = null;
     const drag = home.dragging;
-    if (drag) {
-      justDragged = true;
-      setTimeout(() => (justDragged = false), 50);
-    }
 
     if (!drag) {
       if (press) home.select(press.disc.id);
@@ -156,14 +165,12 @@
 
 <svelte:window onpointermove={onPointerMove} onpointerup={onPointerUp} onkeydown={onKeyDown} />
 
-<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div
   class="ch-home"
   class:ch-dragging={!!home.dragging}
   class:ch-starting={home.phase !== "idle"}
   class:ch-menu-open={home.menuOpen}
   style:--ch-art-hue={artHue}
-  onclick={onScreenClick}
 >
   {#if !home.menuOpen}
     <RoomScene tvTitle={$t("title")} tvHint={$t("turn_on")} zoomed={roomZoomed} onTurnOn={turnOn} onBackground={toggleWindows} />
@@ -186,26 +193,38 @@
   </div>
 
   <div class="ch-content">
+    <header class="ch-header">
+      <span class="ch-header-tab ch-header-tab-active">{$t("games")}</span>
+      <span class="ch-header-count">{home.discs.length}</span>
+      <div class="ch-spacer"></div>
+      <span class="ch-clock">{clock}</span>
+    </header>
+
     <div class="ch-menu">
     <!-- game row -->
     <section class="ch-games">
-      <div class="ch-section-title">{$t("games")}</div>
       {#if home.discs.length === 0}
         <div class="ch-empty">{$t("no_games")}</div>
       {:else}
         <div class="ch-row" bind:this={row} onwheel={onRowWheel}>
           {#each home.discs as disc (disc.id)}
-            <button
-              class="ch-tile"
-              class:ch-tile-selected={home.selected?.id === disc.id}
-              class:ch-tile-held={home.dragging?.disc?.id === disc.id}
-              data-disc-id={disc.id}
-              title={disc.title}
-              onpointerdown={(e) => onTilePointerDown(e, disc)}
-              ondblclick={() => home.play(disc)}
-            >
-              <GameCover {disc} />
-            </button>
+            {@const isSelected = home.selected?.id === disc.id}
+            <div class="ch-tile-wrap" class:ch-tile-wrap-selected={isSelected}>
+              <button
+                class="ch-tile"
+                class:ch-tile-selected={isSelected}
+                class:ch-tile-held={home.dragging?.disc?.id === disc.id}
+                data-disc-id={disc.id}
+                aria-label={disc.title}
+                onpointerdown={(e) => onTilePointerDown(e, disc)}
+                ondblclick={() => home.play(disc)}
+              >
+                <GameCover {disc} />
+              </button>
+              {#if isSelected}
+                <span class="ch-tile-name">{disc.title}</span>
+              {/if}
+            </div>
           {/each}
         </div>
       {/if}
@@ -213,38 +232,67 @@
 
     <!-- selected game -->
     {#if home.selected}
-      <section class="ch-details">
-        <h1 class="ch-title">{home.selected.title}</h1>
-        <div class="ch-source">{home.selected.source}</div>
-        <div class="ch-actions">
-          <button class="ch-play" onclick={() => home.selected && home.play(home.selected)}>
-            ▶ {$t("play")}
-          </button>
-          {#if home.selected.burned}
-            <button
-              class="ch-secondary"
-              title={$t("remove_disc")}
-              onclick={() => home.selected && home.removeDisc(home.selected.id)}
-            >
-              {$t("remove_disc")}
-            </button>
+      {@const game = home.selected}
+      {#key game.id}
+        <section class="ch-details">
+          {#if game.logo && !failedLogo[game.logo]}
+            <img
+              class="ch-logo"
+              src={convertFileSrc(game.logo)}
+              alt={game.title}
+              draggable="false"
+              onerror={() => game.logo && (failedLogo[game.logo] = true)}
+            />
+          {:else}
+            <h1 class="ch-title">{game.title}</h1>
           {/if}
-        </div>
-      </section>
+          <div class="ch-meta">
+            <span class="ch-meta-icon">
+              {#if game.icon && !failedIcon[game.icon]}
+                <img
+                  src={convertFileSrc(game.icon)}
+                  alt=""
+                  draggable="false"
+                  onerror={() => game.icon && (failedIcon[game.icon] = true)}
+                />
+              {:else}
+                <FileIcon path={game.iconPath} umid={game.iconUmid} draggable="false" />
+              {/if}
+            </span>
+            <span class="ch-source">{game.source}</span>
+          </div>
+          <div class="ch-actions">
+            <button class="ch-play" onclick={() => home.play(game)}>
+              <svg class="ch-play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" /></svg>
+              {$t("play")}
+            </button>
+            {#if game.burned}
+              <button class="ch-secondary" onclick={() => home.removeDisc(game.id)}>
+                {$t("remove_disc")}
+              </button>
+            {/if}
+          </div>
+        </section>
+      {/key}
     {/if}
 
     </div>
 
     <!-- bottom: back to the room, library, disc maker and console -->
     <section class="ch-bottom">
-      <button class="ch-library-button" onclick={() => home.closeMenu()} title={$t("power_off")}>
-        <span class="ch-library-icon">⏻</span>
+      <button class="ch-library-button" onclick={() => home.closeMenu()}>
+        <svg class="ch-library-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3v9" /><path d="M6.3 6.8a8 8 0 1 0 11.4 0" />
+        </svg>
         {$t("power_off")}
       </button>
       <button class="ch-library-button" onclick={() => home.openLibrary()}>
-          <span class="ch-library-icon">▤</span>
-          {$t("library")}
-        </button>
+        <svg class="ch-library-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="4" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" />
+          <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" />
+        </svg>
+        {$t("library")}
+      </button>
 
       <div class="ch-spacer"></div>
 
@@ -319,7 +367,7 @@
             ondblclick={() => home.openEntry(entry)}
           >
             <FileIcon class="ch-library-item-icon" path={entry.iconPath} umid={entry.iconUmid} />
-            <span class="ch-library-item-name" title={entry.title}>{entry.title}</span>
+            <span class="ch-library-item-name">{entry.title}</span>
             <button class="ch-secondary" onclick={() => home.burn(entry)}>{$t("make_disc")}</button>
             <button class="ch-small-play" onclick={() => home.openEntry(entry)}>{$t("open")}</button>
           </div>

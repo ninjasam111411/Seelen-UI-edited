@@ -2,7 +2,8 @@
 //!
 //! Steam games use their public store images; other games are looked up on the Steam store by
 //! name, then on Wikipedia (games not sold on Steam, e.g. console games played in an emulator).
-//! Only an exact name match is used. Images are downloaded once into the cache folder
+//! Only an exact name match is used. Title logos and, for games with no program of their own to
+//! take an icon from, icons come from Steam too. Images are downloaded once into the cache folder
 //! and remembered in an index, so each game is looked up only once (failures are retried after a
 //! week). Everything runs in the background: the next games scan picks up what was found.
 
@@ -18,11 +19,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     get_tokio_handle,
-    system_modules::games::domain::{steam_art_urls, steam_search_match, wikipedia_cover_match},
+    system_modules::games::domain::{
+        steam_art_urls, steam_icon_url, steam_search_match, wikipedia_cover_match,
+    },
     utils::{constants::SEELEN_COMMON, lock_free::TracedMutex},
 };
 
 const RETRY_AFTER_SECS: u64 = 7 * 24 * 60 * 60;
+/// Bumped when new kinds of art are looked up, so games checked before get them too.
+const ART_VERSION: u32 = 2;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 static INDEX: LazyLock<TracedMutex<HashMap<String, ArtEntry>>> =
@@ -42,7 +47,13 @@ static HTTP: LazyLock<reqwest::Client> = LazyLock::new(|| {
 struct ArtEntry {
     cover: Option<PathBuf>,
     hero: Option<PathBuf>,
+    #[serde(default)]
+    icon: Option<PathBuf>,
+    #[serde(default)]
+    logo: Option<PathBuf>,
     checked_at: u64,
+    #[serde(default)]
+    version: u32,
 }
 
 /// Fills in the cover/hero of games without one, from art found earlier.
@@ -58,10 +69,17 @@ pub fn apply(games: &mut [InstalledGame]) {
         if game.hero.is_none() {
             game.hero = entry.hero.clone().filter(|p| p.exists());
         }
+        if game.icon.is_none() {
+            game.icon = entry.icon.clone().filter(|p| p.exists());
+        }
+        if game.logo.is_none() {
+            game.logo = entry.logo.clone().filter(|p| p.exists());
+        }
     }
 }
 
-/// Starts looking up art for the games that still have no cover.
+/// Starts looking up art for the games never checked (or checked by an older version), and
+/// again after a while for the ones that still have no cover.
 pub fn request(games: &[InstalledGame]) {
     let now = now_secs();
     let wanted: Vec<InstalledGame> = {
@@ -69,11 +87,11 @@ pub fn request(games: &[InstalledGame]) {
         let mut pending = PENDING.lock();
         games
             .iter()
-            .filter(|game| game.cover.is_none())
             .filter(|game| {
-                index
-                    .get(&game.id)
-                    .is_none_or(|e| e.cover.is_none() && now - e.checked_at > RETRY_AFTER_SECS)
+                index.get(&game.id).is_none_or(|e| {
+                    e.version < ART_VERSION
+                        || (game.cover.is_none() && now - e.checked_at > RETRY_AFTER_SECS)
+                })
             })
             .filter(|game| pending.insert(game.id.clone()))
             .cloned()
@@ -85,7 +103,8 @@ pub fn request(games: &[InstalledGame]) {
 
     get_tokio_handle().spawn(async move {
         for game in wanted {
-            let entry = find_art(&game).await;
+            let previous = INDEX.lock().get(&game.id).cloned().unwrap_or_default();
+            let entry = find_art(&game, previous).await;
             INDEX.lock().insert(game.id.clone(), entry);
             PENDING.lock().remove(&game.id);
             save_index();
@@ -93,32 +112,88 @@ pub fn request(games: &[InstalledGame]) {
     });
 }
 
-async fn find_art(game: &InstalledGame) -> ArtEntry {
-    let appid = match game.source {
-        GameSource::Steam => game.id.strip_prefix("steam:").map(str::to_owned),
-        _ => search_steam(&game.name).await,
-    };
+/// Fills in what the game and the previous lookup are both missing.
+async fn find_art(game: &InstalledGame, previous: ArtEntry) -> ArtEntry {
     let mut entry = ArtEntry {
         checked_at: now_secs(),
-        ..Default::default()
+        version: ART_VERSION,
+        ..previous
     };
     let dir = art_dir();
     if std::fs::create_dir_all(&dir).is_err() {
         return entry;
     }
     let file_id = sanitize(&game.id);
-    let cover_path = dir.join(format!("{file_id}_cover.jpg"));
-    if let Some(appid) = appid {
-        let (covers, heroes) = steam_art_urls(&appid);
-        entry.cover = download_first(&covers, &cover_path).await;
-        entry.hero = download_first(&heroes, &dir.join(format!("{file_id}_hero.jpg"))).await;
+    let path = |kind: &str, ext: &str| dir.join(format!("{file_id}_{kind}.{ext}"));
+    let need_cover = game.cover.is_none() && entry.cover.is_none();
+    let need_hero = game.hero.is_none() && entry.hero.is_none();
+    let need_logo = game.logo.is_none() && entry.logo.is_none();
+    // a game with a program or an app id gets its icon from there, which looks sharper
+    let need_icon = game.icon.is_none()
+        && entry.icon.is_none()
+        && game.executable.is_none()
+        && game.umid.is_none();
+    if !(need_cover || need_hero || need_logo || need_icon) {
+        return entry;
     }
-    if entry.cover.is_none() && game.source != GameSource::Steam {
+
+    let appid = match game.source {
+        GameSource::Steam => game.id.strip_prefix("steam:").map(str::to_owned),
+        _ => search_steam(&game.name).await,
+    };
+    if let Some(appid) = &appid {
+        let (covers, heroes, logos) = steam_art_urls(appid);
+        if need_cover {
+            entry.cover = download_first(&covers, &path("cover", "jpg")).await;
+        }
+        if need_hero {
+            entry.hero = download_first(&heroes, &path("hero", "jpg")).await;
+        }
+        if need_logo {
+            entry.logo = download_first(&logos, &path("logo", "png")).await;
+        }
+        if need_icon {
+            if let Some(url) = steam_icon(appid).await {
+                entry.icon = download_first(&[url], &path("icon", "jpg")).await;
+            }
+        }
+    }
+    if need_cover && entry.cover.is_none() && game.source != GameSource::Steam {
         if let Some(url) = search_wikipedia(&game.name).await {
-            entry.cover = download_first(&[url], &cover_path).await;
+            entry.cover = download_first(&[url], &path("cover", "jpg")).await;
         }
     }
     entry
+}
+
+async fn search_steam(name: &str) -> Option<String> {
+    let url = format!(
+        "https://store.steampowered.com/api/storesearch/?term={}&l=english&cc=US",
+        urlencoding::encode(name)
+    );
+    let body = get_text(&url).await?;
+    steam_search_match(&body, name)
+}
+
+/// The app's icon as the Steam client shows it, from the public store browse api.
+async fn steam_icon(appid: &str) -> Option<String> {
+    let input = format!(
+        r#"{{"ids":[{{"appid":{appid}}}],"context":{{"language":"english","country_code":"US"}},"data_request":{{"include_assets":true}}}}"#
+    );
+    let url = format!(
+        "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json={}",
+        urlencoding::encode(&input)
+    );
+    let body = get_text(&url).await?;
+    steam_icon_url(&body, appid)
+}
+
+async fn get_text(url: &str) -> Option<String> {
+    let response = HTTP.get(url).send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    response.text().await.ok()
 }
 
 /// Cover art from the game's Wikipedia page: the page with the game's exact name (or with
@@ -135,33 +210,11 @@ async fn search_wikipedia(name: &str) -> Option<String> {
         urlencoding::encode(&format!("{name} video game"))
     );
     for url in [by_title, by_search] {
-        let Ok(response) = HTTP.get(url).send().await else {
-            continue;
-        };
-        if !response.status().is_success() {
-            continue;
-        }
-        let Ok(body) = response.text().await else {
-            continue;
-        };
-        if let Some(found) = wikipedia_cover_match(&body, name) {
+        if let Some(found) = get_text(&url).await.and_then(|b| wikipedia_cover_match(&b, name)) {
             return Some(found);
         }
     }
     None
-}
-
-async fn search_steam(name: &str) -> Option<String> {
-    let url = format!(
-        "https://store.steampowered.com/api/storesearch/?term={}&l=english&cc=US",
-        urlencoding::encode(name)
-    );
-    let response = HTTP.get(url).send().await.ok()?;
-    if !response.status().is_success() {
-        return None;
-    }
-    let body = response.text().await.ok()?;
-    steam_search_match(&body, name)
 }
 
 /// Downloads the first url that answers with an image.

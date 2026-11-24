@@ -23,6 +23,12 @@ pub struct InstalledGame {
     /// arguments for `launch` when it is a program (e.g. the game file for an emulator)
     #[serde(default)]
     pub launch_args: Option<String>,
+    /// small square icon of the game (from its folder, the launcher or the internet)
+    #[serde(default)]
+    pub icon: Option<PathBuf>,
+    /// the game's title logo (transparent), shown over its background art
+    #[serde(default)]
+    pub logo: Option<PathBuf>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]

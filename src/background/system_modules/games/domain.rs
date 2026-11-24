@@ -212,6 +212,8 @@ pub fn steam_game(
         umid: None,
         executable: None,
         launch_args: None,
+        icon: None,
+        logo: None,
     }
 }
 
@@ -227,6 +229,8 @@ pub fn store_game(umid: &str, name: &str) -> InstalledGame {
         umid: Some(umid.to_owned()),
         executable: None,
         launch_args: None,
+        icon: None,
+        logo: None,
     }
 }
 
@@ -250,6 +254,8 @@ pub fn shortcut_game(
         umid: umid.map(str::to_owned),
         executable: target.map(Path::to_path_buf),
         launch_args: None,
+        icon: None,
+        logo: None,
     })
 }
 
@@ -291,6 +297,8 @@ pub fn local_game(executable: &Path, name: &str, source: GameSource) -> Installe
         umid: None,
         executable: Some(executable.to_path_buf()),
         launch_args: None,
+        icon: None,
+        logo: None,
     }
 }
 
@@ -307,6 +315,8 @@ pub fn ubisoft_game(id: &str, install_dir: &Path) -> Option<InstalledGame> {
         umid: None,
         executable: None,
         launch_args: None,
+        icon: None,
+        logo: None,
     })
 }
 
@@ -463,8 +473,8 @@ pub fn steam_search_match(search_json: &str, name: &str) -> Option<String> {
     })
 }
 
-/// Public Steam store image urls of an app: `(cover candidates, hero candidates)`.
-pub fn steam_art_urls(appid: &str) -> (Vec<String>, Vec<String>) {
+/// Public Steam store image urls of an app: `(cover candidates, hero candidates, logo candidates)`.
+pub fn steam_art_urls(appid: &str) -> (Vec<String>, Vec<String>, Vec<String>) {
     let bases = [
         format!("https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appid}"),
         format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}"),
@@ -478,6 +488,7 @@ pub fn steam_art_urls(appid: &str) -> (Vec<String>, Vec<String>) {
             .iter()
             .map(|b| format!("{b}/library_hero.jpg"))
             .collect(),
+        bases.iter().map(|b| format!("{b}/logo.png")).collect(),
     )
 }
 
@@ -521,6 +532,8 @@ pub fn epic_game(manifest_json: &str) -> Option<InstalledGame> {
         umid: None,
         executable,
         launch_args: None,
+        icon: None,
+        logo: None,
     })
 }
 
@@ -533,6 +546,54 @@ pub fn pick_steam_cover(files: &[PathBuf]) -> Option<PathBuf> {
 /// Wide background art from Steam's library cache for one app.
 pub fn pick_steam_hero(files: &[PathBuf]) -> Option<PathBuf> {
     pick_steam_art(files, &["library_hero", "page_bg"])
+}
+
+/// Transparent title logo from Steam's library cache for one app.
+pub fn pick_steam_logo(files: &[PathBuf]) -> Option<PathBuf> {
+    pick_steam_art(files, &["logo"])
+}
+
+/// The app icon in Steam's library cache: the image named by its 40 characters hash.
+pub fn pick_steam_icon(files: &[PathBuf]) -> Option<PathBuf> {
+    files
+        .iter()
+        .find(|path| {
+            let is_hash = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .is_some_and(|s| s.len() == 40 && s.chars().all(|c| c.is_ascii_hexdigit()));
+            let is_image = path.extension().is_some_and(|e| {
+                ["jpg", "png", "ico"].iter().any(|ext| e.eq_ignore_ascii_case(ext))
+            });
+            is_hash && is_image
+        })
+        .cloned()
+}
+
+/// An icon file a game ships next to its program (e.g. `game.ico`), from lower case file names.
+pub fn pick_folder_icon(files: &[String]) -> Option<String> {
+    let icons: Vec<&String> = files
+        .iter()
+        .filter(|f| f.ends_with(".ico") && !NON_GAME_EXE_PARTS.iter().any(|p| f.contains(p)))
+        .collect();
+    icons
+        .iter()
+        .find(|f| f.contains("game") || f.contains("icon"))
+        .or_else(|| icons.first())
+        .map(|f| (*f).clone())
+}
+
+/// Steam community icon url from an `IStoreBrowseService/GetItems` response.
+pub fn steam_icon_url(get_items_json: &str, appid: &str) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_str(get_items_json).ok()?;
+    let item = json.get("response")?.get("store_items")?.as_array()?.first()?;
+    let hash = item.get("assets")?.get("community_icon")?.as_str()?;
+    if hash.is_empty() || !hash.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    Some(format!(
+        "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/{appid}/{hash}.jpg"
+    ))
 }
 
 fn pick_steam_art(files: &[PathBuf], prefixes: &[&str]) -> Option<PathBuf> {
@@ -779,6 +840,26 @@ mod tests {
         assert_eq!(
             wikipedia_cover_match(json, "House Party").as_deref(),
             Some("https://upload.wikimedia.org/hp.jpg")
+        );
+    }
+
+    #[test]
+    fn finds_icons_and_logos() {
+        let files = vec![
+            PathBuf::from("/cache/730/library_600x900.jpg"),
+            PathBuf::from("/cache/730/logo.png"),
+            PathBuf::from("/cache/730/8dbc71957312bbd3baea65848b545be9eae2a355.jpg"),
+        ];
+        assert_eq!(pick_steam_logo(&files), Some(files[1].clone()));
+        assert_eq!(pick_steam_icon(&files), Some(files[2].clone()));
+        let folder = names(&["unins000.exe", "launcher.exe", "game.ico", "other.ico"]);
+        assert_eq!(pick_folder_icon(&folder).as_deref(), Some("game.ico"));
+        assert_eq!(pick_folder_icon(&names(&["a.exe"])), None);
+        let json = r#"{"response":{"store_items":[{"appid":730,
+            "assets":{"community_icon":"8dbc71957312bbd3baea65848b545be9eae2a355"}}]}}"#;
+        assert_eq!(
+            steam_icon_url(json, "730").as_deref(),
+            Some("https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/730/8dbc71957312bbd3baea65848b545be9eae2a355.jpg")
         );
     }
 

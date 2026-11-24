@@ -31,6 +31,7 @@ body {
 .ch-art {
   position: absolute;
   inset: 0;
+  overflow: hidden;
 }
 
 .ch-art-image {
@@ -39,34 +40,33 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  animation: ch-art-in 0.6s ease both;
+  // a slow drift keeps the backdrop alive, like a console home screen
+  animation:
+    ch-art-in 0.7s ease both,
+    ch-art-drift 40s ease-in-out 0.7s infinite alternate;
   transition: transform 6s ease-out;
 
   .ch-starting & {
+    animation: ch-art-in 0.7s ease both;
     transform: scale(1.08);
   }
 }
 
 // a portrait cover blown up to fill the screen is blurred so it reads as a backdrop
 .ch-art-portrait {
-  filter: blur(40px) saturate(1.2) brightness(0.8);
-  transform: scale(1.2);
+  filter: blur(48px) saturate(1.3) brightness(0.75);
+  transform: scale(1.25);
+  animation: ch-art-in 0.7s ease both;
 }
 
 .ch-art-shade {
   position: absolute;
   inset: 0;
-  opacity: 0.55;
-  transition: opacity 0.35s ease;
-
-  .ch-menu-open & {
-    opacity: 1;
-  }
-
   background:
-    linear-gradient(90deg, rgb(5 6 10 / 0.85) 0%, rgb(5 6 10 / 0.35) 55%, rgb(5 6 10 / 0.1) 100%),
-    linear-gradient(0deg, rgb(5 6 10 / 0.9) 0%, rgb(5 6 10 / 0) 45%),
-    linear-gradient(180deg, rgb(5 6 10 / 0.7) 0%, rgb(5 6 10 / 0) 25%);
+    linear-gradient(90deg, rgb(4 5 9 / 0.88) 0%, rgb(4 5 9 / 0.45) 45%, rgb(4 5 9 / 0.05) 100%),
+    linear-gradient(0deg, rgb(4 5 9 / 0.95) 0%, rgb(4 5 9 / 0.55) 22%, rgb(4 5 9 / 0) 50%),
+    linear-gradient(180deg, rgb(4 5 9 / 0.75) 0%, rgb(4 5 9 / 0) 28%),
+    radial-gradient(ellipse at 50% 50%, transparent 55%, rgb(0 0 0 / 0.45) 100%);
 }
 
 // ─── Layout ──────────────────────────────────────────────────────────────────
@@ -77,8 +77,43 @@ body {
   display: flex;
   flex-direction: column;
   // leaves room for the top bar and a dock at the top of the screen
-  padding: 140px 64px 48px;
-  gap: 28px;
+  padding: 96px 72px 44px;
+  gap: 22px;
+}
+
+.ch-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: ch-rise-in 0.4s ease both;
+}
+
+.ch-header-tab {
+  font-size: 22px;
+  font-weight: 600;
+  color: rgb(242 244 248 / 0.55);
+}
+
+.ch-header-tab-active {
+  color: #ffffff;
+}
+
+.ch-header-count {
+  min-width: 26px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  color: rgb(242 244 248 / 0.85);
+  background: rgb(255 255 255 / 0.14);
+}
+
+.ch-clock {
+  font-size: 22px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: rgb(242 244 248 / 0.9);
 }
 
 .ch-section-title {
@@ -101,8 +136,8 @@ body {
 .ch-menu {
   display: flex;
   flex-direction: column;
-  gap: 28px;
-  animation: ch-menu-in 0.28s ease both;
+  gap: 34px;
+  animation: ch-menu-in 0.35s ease both;
 }
 
 // ─── Covers ─────────────────────────────────────────────────────────────────
@@ -126,13 +161,23 @@ body {
   background:
     radial-gradient(circle at 30% 20%, hsl(var(--ch-cover-hue) 70% 62%) 0%, transparent 60%),
     linear-gradient(160deg, hsl(var(--ch-cover-hue) 60% 42%) 0%, hsl(calc(var(--ch-cover-hue) + 40) 55% 16%) 100%);
+
+  // soft shine on top, like a printed cover
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(155deg, rgb(255 255 255 / 0.22) 0%, transparent 38%);
+    pointer-events: none;
+  }
 }
 
 .ch-cover-generated-icon {
-  width: 48%;
-  height: 48%;
+  width: 46%;
+  height: 46%;
   object-fit: contain;
-  filter: drop-shadow(0 6px 14px rgb(0 0 0 / 0.45));
+  border-radius: 14%;
+  filter: drop-shadow(0 8px 16px rgb(0 0 0 / 0.5));
 }
 
 .ch-cover-generated-title {
@@ -154,46 +199,78 @@ body {
 .ch-row {
   display: flex;
   align-items: center;
-  gap: 14px;
-  height: 196px;
-  padding: 0 4px;
+  gap: 16px;
+  // tall enough for the selected tile's glow
+  height: 250px;
+  margin: -25px 0;
+  padding: 0 12px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
+  // tiles fade out at the right edge instead of being cut
+  mask-image: linear-gradient(90deg, #000 0%, #000 88%, transparent 100%);
 
   &::-webkit-scrollbar {
     display: none;
   }
 }
 
-.ch-tile {
+.ch-tile-wrap {
   flex: none;
-  width: 128px;
-  height: 128px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.ch-tile-name {
+  max-width: 260px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-shadow: 0 2px 12px rgb(0 0 0 / 0.6);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  animation: ch-slide-in 0.25s ease both;
+}
+
+.ch-tile {
+  position: relative;
+  flex: none;
+  width: 120px;
+  height: 120px;
   padding: 0;
   border: none;
-  border-radius: 16px;
+  border-radius: 18px;
   overflow: hidden;
-  background: rgb(255 255 255 / 0.1);
+  background: rgb(255 255 255 / 0.08);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.45);
   transition:
-    width 0.18s ease,
-    height 0.18s ease,
-    transform 0.18s ease;
+    width 0.22s cubic-bezier(0.2, 0.8, 0.2, 1),
+    height 0.22s cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 0.18s ease,
+    filter 0.18s ease,
+    box-shadow 0.22s ease;
+  filter: brightness(0.82);
 
   &:hover {
-    transform: translateY(-3px);
+    transform: translateY(-4px);
+    filter: brightness(1);
   }
 
   &.ch-tile-selected {
-    width: 176px;
-    height: 176px;
-    outline: 3px solid #ffffff;
-    outline-offset: 3px;
+    width: 172px;
+    height: 172px;
+    filter: brightness(1);
+    box-shadow:
+      0 0 0 3px #ffffff,
+      0 0 0 7px rgb(255 255 255 / 0.18),
+      0 18px 40px rgb(0 0 0 / 0.55);
   }
 
   &.ch-tile-held {
@@ -218,55 +295,113 @@ body {
 .ch-details {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 14px;
   max-width: 900px;
-  animation: ch-fade-in 0.3s ease both;
+  animation: ch-rise-in 0.35s ease both;
+}
+
+.ch-logo {
+  max-width: min(560px, 45vw);
+  max-height: 170px;
+  object-fit: contain;
+  object-position: left center;
+  filter: drop-shadow(0 6px 24px rgb(0 0 0 / 0.55));
 }
 
 .ch-title {
   margin: 0;
-  font-size: 56px;
-  font-weight: 700;
-  line-height: 1.05;
-  text-shadow: 0 4px 24px rgb(0 0 0 / 0.5);
+  font-size: 60px;
+  font-weight: 800;
+  line-height: 1.02;
+  letter-spacing: -0.01em;
+  text-shadow: 0 4px 28px rgb(0 0 0 / 0.55);
+}
+
+.ch-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ch-meta-icon {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  > * {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border-radius: 7px;
+  }
 }
 
 .ch-source {
-  font-size: 18px;
-  color: rgb(242 244 248 / 0.75);
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgb(242 244 248 / 0.9);
+  background: rgb(255 255 255 / 0.14);
+  backdrop-filter: blur(12px);
 }
 
 .ch-actions {
   display: flex;
   gap: 14px;
-  margin-top: 18px;
+  margin-top: 14px;
 }
 
 .ch-play {
-  min-width: 200px;
-  padding: 16px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-width: 220px;
+  padding: 16px 34px;
   border: none;
-  border-radius: 999px;
-  font-size: 20px;
+  border-radius: 16px;
+  font-size: 21px;
   font-weight: 700;
   color: #0b0f1a;
   background: #ffffff;
   cursor: pointer;
-  box-shadow: 0 8px 30px rgb(0 0 0 / 0.35);
-  transition: transform 0.15s ease;
+  box-shadow: 0 10px 34px rgb(0 0 0 / 0.4);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
 
   &:hover {
     transform: scale(1.04);
+    box-shadow:
+      0 0 0 4px rgb(255 255 255 / 0.25),
+      0 14px 40px rgb(0 0 0 / 0.45);
   }
+
+  &:active {
+    transform: scale(0.98);
+  }
+}
+
+.ch-play-icon {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
 }
 
 .ch-secondary {
   padding: 12px 22px;
   border: none;
-  border-radius: 999px;
+  border-radius: 14px;
   font-size: 15px;
+  font-weight: 600;
   color: #f2f4f8;
-  background: rgb(255 255 255 / 0.16);
+  background: rgb(255 255 255 / 0.14);
+  backdrop-filter: blur(12px);
   cursor: pointer;
 
   &:hover {
@@ -291,7 +426,8 @@ body {
   margin-top: auto;
   display: flex;
   align-items: flex-end;
-  gap: 20px;
+  gap: 16px;
+  animation: ch-rise-in 0.45s ease 0.05s both;
 }
 
 .ch-spacer {
@@ -302,23 +438,33 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 24px;
-  border: none;
+  padding: 13px 22px;
+  border: 1px solid rgb(255 255 255 / 0.12);
   border-radius: 16px;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
   color: #f2f4f8;
-  background: rgb(255 255 255 / 0.14);
-  backdrop-filter: blur(16px);
+  background: rgb(18 22 34 / 0.55);
+  backdrop-filter: blur(18px);
   cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.15s ease;
 
   &:hover {
-    background: rgb(255 255 255 / 0.24);
+    background: rgb(255 255 255 / 0.2);
+    transform: translateY(-2px);
   }
 }
 
 .ch-library-icon {
-  font-size: 20px;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .ch-maker,
@@ -326,17 +472,20 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 16px 20px;
+  padding: 14px 20px;
+  border: 1px solid rgb(255 255 255 / 0.1);
   border-radius: 20px;
-  background: rgb(10 12 20 / 0.55);
-  backdrop-filter: blur(16px);
+  background: rgb(18 22 34 / 0.55);
+  backdrop-filter: blur(18px);
   transition:
     transform 0.15s ease,
     box-shadow 0.15s ease;
 
   &.ch-drop-active {
     transform: scale(1.05);
-    box-shadow: 0 0 0 3px #ffffff, 0 0 40px var(--system-accent-light-color);
+    box-shadow:
+      0 0 0 3px #ffffff,
+      0 0 40px var(--system-accent-light-color);
   }
 }
 
@@ -348,7 +497,7 @@ body {
 }
 
 .ch-card-title {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
 }
 
@@ -709,6 +858,37 @@ body {
   from {
     opacity: 0;
     transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ch-art-drift {
+  from {
+    transform: scale(1.02) translate(0, 0);
+  }
+  to {
+    transform: scale(1.1) translate(-1.5%, -1%);
+  }
+}
+
+@keyframes ch-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ch-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
   }
   to {
     opacity: 1;
