@@ -10,8 +10,10 @@ use std::{
 use seelen_core::system_state::InstalledGame;
 
 use super::domain::{
-    GamesSystem, epic_game, pick_steam_cover, steam_app_manifest, steam_game, steam_library_paths,
+    GamesSystem, epic_game, pick_steam_cover, pick_steam_hero, shortcut_game, steam_app_manifest,
+    steam_game, steam_library_paths, store_game,
 };
+use crate::system_modules::start::StartMenuManager;
 
 #[cfg(windows)]
 type Platform = windows::WindowsGames;
@@ -42,11 +44,38 @@ impl GamesManager {
         if let Some(dir) = self.platform.epic_manifests_dir() {
             games.extend(scan_epic(&dir));
         }
+        games.extend(self.scan_start_menu());
 
-        let mut seen = HashSet::new();
-        games.retain(|game| seen.insert(game.id.clone()));
+        // the same game can come from several sources (e.g. a launcher shortcut and the store)
+        let mut seen_ids = HashSet::new();
+        let mut seen_names = HashSet::new();
+        games.retain(|game| {
+            seen_ids.insert(game.id.clone()) && seen_names.insert(game.name.to_lowercase())
+        });
         games.sort_by_key(|game| game.name.to_lowercase());
         games
+    }
+}
+
+impl GamesManager {
+    /// Store (Xbox/GDK) games and known launcher shortcuts, from the start menu entries.
+    fn scan_start_menu(&self) -> Vec<InstalledGame> {
+        StartMenuManager::instance()
+            .get_all()
+            .iter()
+            .filter_map(|item| match (&item.target, &item.umid) {
+                (None, Some(umid)) if self.platform.is_store_game(umid) => {
+                    Some(store_game(umid, &item.display_name))
+                }
+                (None, _) => None,
+                (Some(target), umid) => shortcut_game(
+                    &item.path,
+                    &item.display_name,
+                    Some(target),
+                    umid.as_deref(),
+                ),
+            })
+            .collect()
     }
 }
 
@@ -77,24 +106,31 @@ fn scan_steam(root: &Path) -> Vec<InstalledGame> {
                 continue;
             };
             if let Some((appid, name)) = steam_app_manifest(&acf) {
-                games.push(steam_game(&appid, &name, steam_cover(&cache, &appid)));
+                let files = steam_cache_files(&cache, &appid);
+                let cover = pick_steam_cover(&files).or_else(|| {
+                    let flat = cache.join(format!("{appid}_library_600x900.jpg"));
+                    flat.exists().then_some(flat)
+                });
+                let hero = pick_steam_hero(&files).or_else(|| {
+                    let flat = cache.join(format!("{appid}_library_hero.jpg"));
+                    flat.exists().then_some(flat)
+                });
+                games.push(steam_game(&appid, &name, cover, hero));
             }
         }
     }
     games
 }
 
-/// Steam keeps the covers either flat (`<appid>_library_600x900.jpg`, older clients) or in a
-/// folder per app, sometimes nested one level more.
-fn steam_cover(cache: &Path, appid: &str) -> Option<PathBuf> {
-    let flat = cache.join(format!("{appid}_library_600x900.jpg"));
-    if flat.exists() {
-        return Some(flat);
-    }
-
-    let dir = cache.join(appid);
+/// Files Steam keeps for one app in its library cache: a folder per app (newer clients), sometimes
+/// nested one level more. Older clients keep them flat (`<appid>_library_600x900.jpg`), which the
+/// caller checks separately.
+fn steam_cache_files(cache: &Path, appid: &str) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    for entry in std::fs::read_dir(&dir).ok()?.flatten() {
+    let Ok(entries) = std::fs::read_dir(cache.join(appid)) else {
+        return files;
+    };
+    for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
             if let Ok(inner) = std::fs::read_dir(&path) {
@@ -104,10 +140,7 @@ fn steam_cover(cache: &Path, appid: &str) -> Option<PathBuf> {
             files.push(path);
         }
     }
-    pick_steam_cover(&files).or_else(|| {
-        let header = cache.join(format!("{appid}_header.jpg"));
-        header.exists().then_some(header)
-    })
+    files
 }
 
 fn scan_epic(dir: &Path) -> Vec<InstalledGame> {

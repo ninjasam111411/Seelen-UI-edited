@@ -11,6 +11,21 @@ const STEAM_NON_GAMES: &[&str] = &[
     "250820",  // SteamVR
 ];
 
+/// Start menu shortcuts of games or game launchers that aren't found any other way.
+/// Matched against the shortcut name, case insensitive.
+const KNOWN_GAME_SHORTCUTS: &[&str] = &[
+    "Roblox Player",
+    "Minecraft Launcher",
+    "Riot Client",
+    "League of Legends",
+    "VALORANT",
+    "Battle.net",
+    "Fortnite",
+    "Rocket League",
+    "Among Us",
+    "Bloons TD 6",
+];
+
 /// OS contract of the games module: where each launcher keeps its data.
 pub trait GamesSystem: Sized + Send + Sync {
     /// Never fails: no OS calls here.
@@ -21,6 +36,9 @@ pub trait GamesSystem: Sized + Send + Sync {
 
     /// Folder with the Epic Games launcher manifests (`*.item`), if Epic is installed.
     fn epic_manifests_dir(&self) -> Option<PathBuf>;
+
+    /// Whether a packaged (store) app is a game: Xbox/GDK games ship a `MicrosoftGame.config`.
+    fn is_store_game(&self, umid: &str) -> bool;
 }
 
 /// Flattens the quoted `"key" "value"` pairs of a Valve KeyValues (`.vdf` / `.acf`) file,
@@ -96,15 +114,61 @@ pub fn steam_app_manifest(acf: &str) -> Option<(String, String)> {
 }
 
 /// Builds a Steam game. `cover` is looked up by the caller, as it depends on the file system.
-pub fn steam_game(appid: &str, name: &str, cover: Option<PathBuf>) -> InstalledGame {
+pub fn steam_game(
+    appid: &str,
+    name: &str,
+    cover: Option<PathBuf>,
+    hero: Option<PathBuf>,
+) -> InstalledGame {
     InstalledGame {
         id: format!("steam:{appid}"),
         name: name.to_owned(),
         source: GameSource::Steam,
         launch: format!("steam://rungameid/{appid}"),
         cover,
+        hero,
+        umid: None,
         executable: None,
     }
+}
+
+/// A store (packaged) game, opened by its app id like the start menu does.
+pub fn store_game(umid: &str, name: &str) -> InstalledGame {
+    InstalledGame {
+        id: format!("store:{umid}"),
+        name: name.to_owned(),
+        source: GameSource::Store,
+        launch: format!("shell:AppsFolder\\{umid}"),
+        cover: None,
+        hero: None,
+        umid: Some(umid.to_owned()),
+        executable: None,
+    }
+}
+
+/// A game launcher shortcut from the start menu, if its name is a known one.
+pub fn shortcut_game(
+    shortcut: &Path,
+    name: &str,
+    target: Option<&Path>,
+    umid: Option<&str>,
+) -> Option<InstalledGame> {
+    let is_known = KNOWN_GAME_SHORTCUTS
+        .iter()
+        .any(|known| name.trim().eq_ignore_ascii_case(known));
+    if !is_known {
+        return None;
+    }
+    Some(InstalledGame {
+        id: format!("shortcut:{}", name.to_lowercase()),
+        name: name.to_owned(),
+        source: GameSource::Shortcut,
+        launch: shortcut.to_string_lossy().to_string(),
+        cover: None,
+        hero: None,
+        umid: umid.map(str::to_owned),
+        executable: target.map(Path::to_path_buf),
+    })
 }
 
 /// Reads an Epic Games launcher manifest (`*.item`, JSON). Engine/tool installs are skipped.
@@ -143,6 +207,8 @@ pub fn epic_game(manifest_json: &str) -> Option<InstalledGame> {
             "com.epicgames.launcher://apps/{namespace}%3A{item_id}%3A{app_name}?action=launch&silent=true"
         ),
         cover: None,
+        hero: None,
+        umid: None,
         executable,
     })
 }
@@ -150,6 +216,15 @@ pub fn epic_game(manifest_json: &str) -> Option<InstalledGame> {
 /// Portrait cover from a list of files in Steam's library cache for one app: the 600x900
 /// capsule, or the wide header as a fallback.
 pub fn pick_steam_cover(files: &[PathBuf]) -> Option<PathBuf> {
+    pick_steam_art(files, &["library_600x900", "header"])
+}
+
+/// Wide background art from Steam's library cache for one app.
+pub fn pick_steam_hero(files: &[PathBuf]) -> Option<PathBuf> {
+    pick_steam_art(files, &["library_hero", "page_bg"])
+}
+
+fn pick_steam_art(files: &[PathBuf], prefixes: &[&str]) -> Option<PathBuf> {
     let named = |prefix: &str| {
         files
             .iter()
@@ -160,7 +235,7 @@ pub fn pick_steam_cover(files: &[PathBuf]) -> Option<PathBuf> {
             })
             .cloned()
     };
-    named("library_600x900").or_else(|| named("header"))
+    prefixes.iter().find_map(|prefix| named(prefix))
 }
 
 #[cfg(test)]
@@ -207,7 +282,7 @@ mod tests {
 
     #[test]
     fn steam_game_launches_through_steam() {
-        let game = steam_game("730", "Counter-Strike 2", None);
+        let game = steam_game("730", "Counter-Strike 2", None, None);
         assert_eq!(game.launch, "steam://rungameid/730");
         assert_eq!(game.id, "steam:730");
     }
@@ -237,6 +312,35 @@ mod tests {
         let json = r#"{"DisplayName":"Unreal Engine","AppName":"UE_5.4","CatalogNamespace":"ue",
             "CatalogItemId":"x","AppCategories":["engines"]}"#;
         assert_eq!(epic_game(json), None);
+    }
+
+    #[test]
+    fn known_launchers_become_games() {
+        let lnk = Path::new(r"C:\Start Menu\Programs\Roblox\Roblox Player.lnk");
+        let game = shortcut_game(lnk, "Roblox Player", None, None).unwrap();
+        assert_eq!(game.launch, lnk.to_string_lossy());
+        assert!(shortcut_game(lnk, "Roblox Studio", None, None).is_none());
+    }
+
+    #[test]
+    fn store_games_open_by_app_id() {
+        let game = store_game("ROBLOXCorporation.RobloxGDK_55nm5eh3cm0pr!Game", "Roblox");
+        assert_eq!(
+            game.launch,
+            "shell:AppsFolder\\ROBLOXCorporation.RobloxGDK_55nm5eh3cm0pr!Game"
+        );
+    }
+
+    #[test]
+    fn picks_hero_art() {
+        let files = vec![
+            PathBuf::from(r"C:\cache\730\library_600x900.jpg"),
+            PathBuf::from(r"C:\cache\730\library_hero.jpg"),
+        ];
+        assert_eq!(
+            pick_steam_hero(&files),
+            Some(PathBuf::from(r"C:\cache\730\library_hero.jpg"))
+        );
     }
 
     #[test]

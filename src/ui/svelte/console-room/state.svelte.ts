@@ -1,11 +1,9 @@
 import { invoke, SeelenCommand, SeelenEvent, Settings, subscribe, Widget } from "@seelen-ui/lib";
 import { FolderType, type InstalledGame, type StartMenuItem } from "@seelen-ui/lib/types";
 import { lazyRune } from "libs/ui/svelte/utils/LazyRune.svelte.ts";
-import { rootEffectAsync } from "libs/ui/svelte/utils/RootEffect.svelte.ts";
 import { monitors } from "libs/ui/svelte/runes/monitors.svelte.ts";
 import { get } from "svelte/store";
 import { locale, t } from "./i18n/index.ts";
-import { camera } from "./camera.svelte.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -17,10 +15,13 @@ export type LaunchSpec =
 export interface Disc {
   id: string;
   title: string;
-  kind: "game" | "app" | "file";
-  /** cover art image on disk (Steam keeps one per game) */
+  /** shown under the title: Steam, Epic, Store, App, File... */
+  source: string;
+  /** portrait cover art on disk */
   cover: string | null;
-  /** path/umid used to show the app or file icon on the label */
+  /** wide background art on disk */
+  hero: string | null;
+  /** path/umid used to show the app or file icon */
   iconPath: string | null;
   iconUmid: string | null;
   launch: LaunchSpec;
@@ -30,7 +31,7 @@ export interface Disc {
 
 export type DrawerId = "apps" | "desktop" | "documents" | "downloads" | "pictures" | "music" | "videos" | "recent";
 
-export interface SorterEntry {
+export interface LibraryEntry {
   id: string;
   title: string;
   iconPath: string | null;
@@ -38,12 +39,12 @@ export interface SorterEntry {
   launch: LaunchSpec;
 }
 
-export type Phase = "idle" | "inserting" | "zooming" | "leaving";
+export type Phase = "idle" | "inserting" | "starting";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const BURNED_STORAGE_KEY = "console-room.burned-discs";
-export const DISCS_PER_PAGE = 24;
+const GAMES_REFRESH_MS = 60_000;
 
 const DRAWER_FOLDERS: Record<Exclude<DrawerId, "apps">, FolderType> = {
   desktop: FolderType.Desktop,
@@ -56,8 +57,8 @@ const DRAWER_FOLDERS: Record<Exclude<DrawerId, "apps">, FolderType> = {
 };
 
 export const DRAWERS: DrawerId[] = [
-  "apps",
   "desktop",
+  "apps",
   "documents",
   "downloads",
   "pictures",
@@ -65,6 +66,13 @@ export const DRAWERS: DrawerId[] = [
   "videos",
   "recent",
 ];
+
+const SOURCE_LABELS: Record<string, string> = {
+  Steam: "Steam",
+  Epic: "Epic Games",
+  Store: "Microsoft Store",
+  Shortcut: "Game",
+};
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -86,19 +94,28 @@ $effect.root(() => {
   });
 });
 
+// newly installed games show up without restarting
+setInterval(async () => {
+  try {
+    games.value = await invoke(SeelenCommand.GetInstalledGames);
+  } catch (e) {
+    console.error(e);
+  }
+}, GAMES_REFRESH_MS);
+
 let burned = $state<Disc[]>(loadBurned());
-let page = $state(0);
+let selectedId = $state<string | null>(null);
 let phase = $state<Phase>("idle");
-/** disc currently being played (shown on the TV during the launch) */
 let playing = $state<Disc | null>(null);
-let openDrawer = $state<DrawerId | null>(null);
-let drawerEntries = $state<SorterEntry[]>([]);
+let libraryOpen = $state(false);
+let openDrawer = $state<DrawerId>("desktop");
+let drawerEntries = $state<LibraryEntry[]>([]);
 let burning = $state<string | null>(null);
 let toast = $state<string | null>(null);
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-/** what is being dragged: a disc from the shelf or an entry from the file sorter */
-let dragging = $state<{ disc: Disc | null; entry: SorterEntry | null; x: number; y: number } | null>(null);
+/** what is being dragged: a disc from the row or an entry from the library */
+let dragging = $state<{ disc: Disc | null; entry: LibraryEntry | null; x: number; y: number } | null>(null);
 let dropTarget = $state<"console" | "maker" | null>(null);
 
 const gameDiscs = $derived(
@@ -106,10 +123,11 @@ const gameDiscs = $derived(
     (game): Disc => ({
       id: game.id,
       title: game.name,
-      kind: "game",
+      source: SOURCE_LABELS[game.source] ?? game.source,
       cover: game.cover ?? null,
-      iconPath: game.executable ?? null,
-      iconUmid: null,
+      hero: game.hero ?? null,
+      iconPath: game.executable ?? (game.source === "Shortcut" ? game.launch : null),
+      iconUmid: game.umid ?? null,
       launch: { type: "uri", uri: game.launch },
       burned: false,
     }),
@@ -119,19 +137,18 @@ const gameDiscs = $derived(
 const allDiscs = $derived(
   [...gameDiscs, ...burned].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" })),
 );
-const pageCount = $derived(Math.max(1, Math.ceil(allDiscs.length / DISCS_PER_PAGE)));
-const pageDiscs = $derived(allDiscs.slice(page * DISCS_PER_PAGE, (page + 1) * DISCS_PER_PAGE));
+const selected = $derived(allDiscs.find((d) => d.id === selectedId) ?? allDiscs[0] ?? null);
 
-// ─── Window position ──────────────────────────────────────────────────────────
+// ─── Window ───────────────────────────────────────────────────────────────────
 
-const posSet = rootEffectAsync(() => Widget.self.setPosition(monitors.desktopRect));
-
-Widget.self.onTrigger(async () => {
-  resetRoom();
-  games.value = await invoke(SeelenCommand.GetInstalledGames);
-  await posSet;
-  await Widget.self.show();
-  await Widget.self.focus();
+// Desktop preset: the window stays under every other window and covers the desktop of the
+// primary monitor, so it works as an interactive desktop background.
+$effect.root(() => {
+  $effect(() => {
+    const monitor = monitors.primaryMonitor;
+    if (!monitor) return;
+    Widget.self.setPosition(monitor.rect).then(() => Widget.self.show()).catch(console.error);
+  });
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -139,8 +156,18 @@ Widget.self.onTrigger(async () => {
 function loadBurned(): Disc[] {
   try {
     const raw = localStorage.getItem(BURNED_STORAGE_KEY);
-    const list = raw ? (JSON.parse(raw) as Disc[]) : [];
-    return Array.isArray(list) ? list : [];
+    const list = raw ? (JSON.parse(raw) as Partial<Disc>[]) : [];
+    if (!Array.isArray(list)) return [];
+    // discs saved by older versions lack the newer fields
+    return list.map((d) => ({
+      source: d.launch?.type === "file" ? "File" : "App",
+      hero: null,
+      cover: null,
+      iconPath: null,
+      iconUmid: null,
+      burned: true,
+      ...d,
+    })) as Disc[];
   } catch {
     return [];
   }
@@ -159,19 +186,12 @@ function fileName(path: string): string {
   return (parts[parts.length - 1] ?? path).replace(/\.lnk$/i, "");
 }
 
+const translate = (key: string, vars?: Record<string, string>) => get(t)(key, vars);
+
 function showToast(text: string) {
   toast = text;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (toast = null), 2600);
-}
-
-function resetRoom() {
-  phase = "idle";
-  playing = null;
-  openDrawer = null;
-  dragging = null;
-  dropTarget = null;
-  camera.reset();
 }
 
 function sameLaunch(a: LaunchSpec, b: LaunchSpec): boolean {
@@ -208,76 +228,73 @@ function runLaunch(launch: LaunchSpec): Promise<unknown> {
   }
 }
 
-const translate = (key: string, vars?: Record<string, string>) => get(t)(key, vars);
+function entryToDisc(entry: LibraryEntry): Disc {
+  return {
+    id: entry.id,
+    title: entry.title,
+    source: entry.launch.type === "file" ? translate("source_file") : translate("source_app"),
+    cover: null,
+    hero: null,
+    iconPath: entry.iconPath,
+    iconUmid: entry.iconUmid,
+    launch: entry.launch,
+    burned: false,
+  };
+}
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
-async function playDisc(disc: Disc) {
+async function play(disc: Disc, withInsert = false) {
   if (phase !== "idle") return;
   playing = disc;
-  openDrawer = null;
+  if (allDiscs.some((d) => d.id === disc.id)) selectedId = disc.id;
 
-  phase = "inserting";
-  await wait(500);
-
-  phase = "zooming";
-  camera.zoomToTv();
+  if (withInsert) {
+    phase = "inserting";
+    await wait(600);
+  }
+  phase = "starting";
   try {
     await runLaunch(disc.launch);
   } catch (e) {
     console.error(e);
     showToast(translate("launch_failed", { 0: disc.title }));
-    await wait(900);
-    resetRoom();
+    phase = "idle";
+    playing = null;
     return;
   }
-
-  // let the zoom finish and the app open behind the TV
-  await wait(1700);
-  phase = "leaving";
-  await wait(450);
-  await Widget.self.hide();
-  resetRoom();
+  // the game opens on top of this window; keep the "starting" screen a moment, then reset
+  await wait(5000);
+  phase = "idle";
+  playing = null;
 }
 
-async function burn(entry: SorterEntry) {
+async function burn(entry: LibraryEntry) {
   if (burning) return;
-  const exists = allDiscs.find((d) => sameLaunch(d.launch, entry.launch));
-  if (exists) {
+  if (allDiscs.some((d) => sameLaunch(d.launch, entry.launch))) {
     showToast(translate("already_burned", { 0: entry.title }));
     return;
   }
 
   burning = entry.title;
   await wait(1300);
-  burned.push({
-    id: `burned:${crypto.randomUUID()}`,
-    title: entry.title,
-    kind: entry.launch.type === "file" ? "file" : "app",
-    cover: null,
-    iconPath: entry.iconPath,
-    iconUmid: entry.iconUmid,
-    launch: entry.launch,
-    burned: true,
-  });
+  const disc: Disc = { ...entryToDisc(entry), id: `burned:${crypto.randomUUID()}`, burned: true };
+  burned.push(disc);
   saveBurned();
   burning = null;
-
-  // jump to the page where the new disc landed
-  const index = allDiscs.findIndex((d) => sameLaunch(d.launch, entry.launch));
-  if (index >= 0) page = Math.floor(index / DISCS_PER_PAGE);
+  selectedId = disc.id;
   showToast(translate("burned", { 0: entry.title }));
 }
 
 function removeDisc(id: string) {
   burned = burned.filter((d) => d.id !== id);
   saveBurned();
-  page = Math.min(page, Math.max(0, Math.ceil(allDiscs.length / DISCS_PER_PAGE) - 1));
+  if (selectedId === id) selectedId = null;
 }
 
-async function openSorterDrawer(drawer: DrawerId) {
+async function loadDrawer(drawer: DrawerId) {
   openDrawer = drawer;
   drawerEntries = [];
 
@@ -310,14 +327,14 @@ async function openSorterDrawer(drawer: DrawerId) {
   }));
 }
 
-function openEntry(entry: SorterEntry) {
-  runLaunch(entry.launch).catch(console.error);
-  Widget.self.hide();
+function openLibrary() {
+  libraryOpen = true;
+  loadDrawer(openDrawer);
 }
 
 // ─── Drag & drop ──────────────────────────────────────────────────────────────
 
-function startDrag(source: { disc?: Disc; entry?: SorterEntry }, x: number, y: number) {
+function startDrag(source: { disc?: Disc; entry?: LibraryEntry }, x: number, y: number) {
   if (phase !== "idle") return;
   dragging = { disc: source.disc ?? null, entry: source.entry ?? null, x, y };
 }
@@ -338,20 +355,8 @@ function endDrag() {
   if (!current) return;
 
   if (target === "console") {
-    const disc: Disc | null = current.disc ??
-      (current.entry
-        ? {
-          id: current.entry.id,
-          title: current.entry.title,
-          kind: current.entry.launch.type === "file" ? "file" : "app",
-          cover: null,
-          iconPath: current.entry.iconPath,
-          iconUmid: current.entry.iconUmid,
-          launch: current.entry.launch,
-          burned: false,
-        }
-        : null);
-    if (disc) playDisc(disc);
+    const disc = current.disc ?? (current.entry ? entryToDisc(current.entry) : null);
+    if (disc) play(disc, true);
   } else if (target === "maker") {
     if (current.entry) {
       burn(current.entry);
@@ -363,27 +368,21 @@ function endDrag() {
 
 // ─── Exposed state ────────────────────────────────────────────────────────────
 
-class ConsoleRoomState {
-  get pageDiscs() {
-    return pageDiscs;
+class ConsoleHomeState {
+  get discs() {
+    return allDiscs;
   }
-  get discCount() {
-    return allDiscs.length;
-  }
-  get page() {
-    return page;
-  }
-  set page(value: number) {
-    page = Math.min(Math.max(0, value), pageCount - 1);
-  }
-  get pageCount() {
-    return pageCount;
+  get selected() {
+    return selected;
   }
   get phase() {
     return phase;
   }
   get playing() {
     return playing;
+  }
+  get libraryOpen() {
+    return libraryOpen;
   }
   get openDrawer() {
     return openDrawer;
@@ -404,19 +403,17 @@ class ConsoleRoomState {
     return dropTarget;
   }
 
-  playDisc = playDisc;
+  select = (id: string) => (selectedId = id);
+  play = play;
   burn = burn;
   removeDisc = removeDisc;
-  openSorterDrawer = openSorterDrawer;
-  closeDrawer = () => (openDrawer = null);
-  openEntry = openEntry;
+  openLibrary = openLibrary;
+  closeLibrary = () => (libraryOpen = false);
+  loadDrawer = loadDrawer;
+  openEntry = (entry: LibraryEntry) => runLaunch(entry.launch).catch(console.error);
   startDrag = startDrag;
   moveDrag = moveDrag;
   endDrag = endDrag;
-  close = () => {
-    resetRoom();
-    Widget.self.hide();
-  };
 }
 
-export const room = new ConsoleRoomState();
+export const home = new ConsoleHomeState();

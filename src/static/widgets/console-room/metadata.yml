@@ -1,17 +1,8 @@
 id: "@seelen/console-room"
-icon: PiDiscDuotone
+icon: PiGameControllerDuotone
 metadata:
   displayName: !extend i18n/display_name.yml
   description: !extend i18n/description.yml
 instances: Single
 loader: Internal
-preset: Overlay
-hidden: true
-lazy: true
-shortcuts:
-  - id: console-room-toggle
-    command: ["widget", "trigger", "${self.id}"]
-    label: !extend i18n/shortcuts/console-room-toggle.yml
-    defaultKeys: ["Win", "Shift", "G"]
-plugins:
-  - !extend ./dock-plugin.yml
+preset: Desktop

@@ -1,491 +1,315 @@
 <script lang="ts">
-  import { onMount, type Snippet } from "svelte";
+  import { onMount } from "svelte";
   import { Widget } from "@seelen-ui/lib";
-  import { monitors } from "libs/ui/svelte/runes/monitors.svelte";
+  import { convertFileSrc } from "@tauri-apps/api/core";
   import FileIcon from "libs/ui/svelte/components/Icon/FileIcon.svelte";
   import { t } from "./i18n/index.ts";
-  import { room, DRAWERS, type Disc } from "./state.svelte.ts";
-  import { camera, ROOM, TV } from "./camera.svelte.ts";
+  import { DRAWERS, type Disc, home } from "./state.svelte.ts";
   import DiscFace from "./components/DiscFace.svelte";
-  import ShelfDisc from "./components/ShelfDisc.svelte";
 
   onMount(() => {
     Widget.getCurrent().ready();
   });
 
-  /** The room is drawn on the primary monitor, like the other full screen widgets. */
-  const screen = $derived.by(() => {
-    if (!monitors.primaryMonitor) return null;
-    const { rect, scaleFactor } = monitors.primaryMonitor;
-    const relative = monitors.calculateDesktopRelativeRect(rect);
-    return {
-      x: relative.left / scaleFactor,
-      y: relative.top / scaleFactor,
-      width: (rect.right - rect.left) / scaleFactor,
-      height: (rect.bottom - rect.top) / scaleFactor,
-    };
-  });
+  /** pixels the pointer must move before a press on a tile becomes a drag */
+  const DRAG_THRESHOLD = 6;
 
-  /** ~90° horizontal field of view. */
-  const perspective = $derived((screen?.width ?? window.innerWidth) / 2);
-
-  // ─── Looking around / dragging ──────────────────────────────────────────────
-
-  let looking: { x: number; y: number } | null = null;
+  let pressed: { disc: Disc; x: number; y: number } | null = null;
+  let row: HTMLDivElement | undefined = $state();
   let consoleSlot: HTMLElement | undefined = $state();
   let inserting = $state<{ disc: Disc; fromX: number; fromY: number; toX: number; toY: number; go: boolean } | null>(
     null,
   );
+  let failedArt = $state<Record<string, boolean>>({});
 
-  function onBackgroundPointerDown(e: PointerEvent) {
-    if (e.button !== 0 || room.phase !== "idle") return;
-    looking = { x: e.clientX, y: e.clientY };
+  const art = $derived.by(() => {
+    const disc = home.phase !== "idle" && home.playing ? home.playing : home.selected;
+    if (!disc) return null;
+    const path = disc.hero ?? disc.cover;
+    return path && !failedArt[path] ? { path, wide: !!disc.hero } : null;
+  });
+
+  function onTilePointerDown(e: PointerEvent, disc: Disc) {
+    if (e.button !== 0) return;
+    pressed = { disc, x: e.clientX, y: e.clientY };
   }
 
   function onPointerMove(e: PointerEvent) {
-    if (room.dragging) {
-      room.moveDrag(e.clientX, e.clientY);
-      return;
+    if (pressed && !home.dragging) {
+      if (Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) > DRAG_THRESHOLD) {
+        home.startDrag({ disc: pressed.disc }, e.clientX, e.clientY);
+      }
     }
-    if (looking) {
-      camera.look(e.clientX - looking.x, e.clientY - looking.y);
-      looking = { x: e.clientX, y: e.clientY };
-    }
+    home.moveDrag(e.clientX, e.clientY);
   }
 
   function onPointerUp() {
-    looking = null;
-    const drag = room.dragging;
-    if (!drag) return;
+    const press = pressed;
+    pressed = null;
+    const drag = home.dragging;
 
-    if (room.dropTarget === "console" && consoleSlot) {
+    if (!drag) {
+      if (press) home.select(press.disc.id);
+      return;
+    }
+
+    if (home.dropTarget === "console" && consoleSlot) {
       const slot = consoleSlot.getBoundingClientRect();
-      const disc: Disc | null = drag.disc ??
-        (drag.entry
-          ? {
-            id: drag.entry.id,
-            title: drag.entry.title,
-            kind: "app",
-            cover: null,
-            iconPath: drag.entry.iconPath,
-            iconUmid: drag.entry.iconUmid,
-            launch: drag.entry.launch,
-            burned: false,
-          }
-          : null);
-      if (disc) {
+      const disc = drag.disc;
+      if (disc || drag.entry) {
         inserting = {
-          disc,
+          disc: disc ?? {
+            id: drag.entry!.id,
+            title: drag.entry!.title,
+            source: "",
+            cover: null,
+            hero: null,
+            iconPath: drag.entry!.iconPath,
+            iconUmid: drag.entry!.iconUmid,
+            launch: drag.entry!.launch,
+            burned: false,
+          },
           fromX: drag.x,
           fromY: drag.y,
           toX: slot.left + slot.width / 2,
           toY: slot.top + slot.height / 2,
           go: false,
         };
-        // next frame: start the flight into the slot
         requestAnimationFrame(() => requestAnimationFrame(() => inserting && (inserting.go = true)));
-        setTimeout(() => (inserting = null), 650);
+        setTimeout(() => (inserting = null), 700);
       }
     }
-    room.endDrag();
+    home.endDrag();
   }
 
-  function onWheel(e: WheelEvent) {
-    if (room.openDrawer) return;
+  /** the mouse wheel scrolls the game row sideways */
+  function onRowWheel(e: WheelEvent) {
+    if (!row) return;
     e.preventDefault();
-    camera.walk(e.deltaY);
+    row.scrollLeft += e.deltaY + e.deltaX;
   }
 
-  function onKeyDown(e: KeyboardEvent) {
-    if (e.key !== "Escape") return;
-    if (room.openDrawer) {
-      room.closeDrawer();
-    } else if (room.phase === "idle") {
-      room.close();
-    }
-  }
-
-  // turn the camera while a disc is held near the left/right screen edge
+  // keep the selected tile in view
   $effect(() => {
-    if (!room.dragging || !screen) return;
-    let frame = 0;
-    const tick = () => {
-      const drag = room.dragging;
-      if (drag && screen) {
-        const edge = screen.width * 0.08;
-        const localX = drag.x - screen.x;
-        if (localX < edge) camera.turn(-1.2 * (1 - localX / edge));
-        else if (localX > screen.width - edge) camera.turn(1.2 * (1 - (screen.width - localX) / edge));
-      }
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+    const id = home.selected?.id;
+    if (!row || !id) return;
+    row.querySelector<HTMLElement>(`[data-disc-id="${CSS.escape(id)}"]`)?.scrollIntoView({
+      behavior: "smooth",
+      inline: "nearest",
+      block: "nearest",
+    });
   });
-
-  /**
-   * Places a centered element on a wall, in the wall's own coordinates: `x`/`y` along the wall from
-   * its center, `offset` towards the room. Mounting it inside the wall keeps Chrome from drawing
-   * the wall tiles on top of it.
-   */
-  function placeOnWall(x: number, y: number, offset: number) {
-    return `translate3d(${x}px, ${y}px, ${offset}px) translate(-50%, -50%)`;
-  }
-
-  /** CSS transform placing a centered element in the room. */
-  function place(x: number, y: number, z: number, rotation = "") {
-    return `translate3d(${x}px, ${y}px, ${z}px) ${rotation} translate(-50%, -50%)`;
-  }
-
-  /**
-   * Large surfaces are split in tiles: Chrome drops a whole 3D layer when part of it is behind the
-   * camera, so one big floor would vanish as soon as you walk over it.
-   */
-  const TILE = 400;
-  function tiles(width: number, height: number) {
-    const columns = Math.ceil(width / TILE);
-    const rows = Math.ceil(height / TILE);
-    const tileWidth = width / columns;
-    const tileHeight = height / rows;
-    const list: { key: string; x: number; y: number; width: number; height: number }[] = [];
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < columns; col++) {
-        list.push({ key: `${col}-${row}`, x: col * tileWidth, y: row * tileHeight, width: tileWidth, height: tileHeight });
-      }
-    }
-    return list;
-  }
-
-  const roomWidth = ROOM.halfWidth * 2;
-  const roomDepth = ROOM.halfDepth * 2;
-  const wallHeight = ROOM.floorY - ROOM.ceilingY;
-  const wallCenterY = (ROOM.floorY + ROOM.ceilingY) / 2;
-
-  const surfaces: {
-    name: string;
-    width: number;
-    height: number;
-    transform: string;
-    content?: Snippet;
-  }[] = [
-    {
-      name: "cr-wall-back",
-      content: backWall,
-      width: roomWidth,
-      height: wallHeight,
-      transform: `translate3d(0px, ${wallCenterY}px, ${-ROOM.halfDepth}px)`,
-    },
-    {
-      name: "cr-wall-left",
-      content: leftWall,
-      width: roomDepth,
-      height: wallHeight,
-      transform: `translate3d(${-ROOM.halfWidth}px, ${wallCenterY}px, 0px) rotateY(90deg)`,
-    },
-    {
-      name: "cr-wall-right",
-      content: rightWall,
-      width: roomDepth,
-      height: wallHeight,
-      transform: `translate3d(${ROOM.halfWidth}px, ${wallCenterY}px, 0px) rotateY(-90deg)`,
-    },
-    {
-      name: "cr-wall-front",
-      width: roomWidth,
-      height: wallHeight,
-      transform: `translate3d(0px, ${wallCenterY}px, ${ROOM.halfDepth}px) rotateY(180deg)`,
-    },
-    {
-      name: "cr-floor",
-      width: roomWidth,
-      height: roomDepth,
-      transform: `translate3d(0px, ${ROOM.floorY}px, 0px) rotateX(90deg)`,
-    },
-    {
-      name: "cr-ceiling",
-      width: roomWidth,
-      height: roomDepth,
-      transform: `translate3d(0px, ${ROOM.ceilingY}px, 0px) rotateX(-90deg)`,
-    },
-  ];
-
-  // TV stand box: from the back wall to 300px into the room, top at y = 210
-  const STAND_TOP = 210;
-  const STAND_FRONT_Z = -ROOM.halfDepth + 300;
-  // console standing on the TV stand, to the right of the TV
-  const CONSOLE = { x: 640, width: 150, height: 360, depth: 150, frontZ: STAND_FRONT_Z - 60 };
 </script>
 
-<svelte:window onpointermove={onPointerMove} onpointerup={onPointerUp} onkeydown={onKeyDown} />
+<svelte:window onpointermove={onPointerMove} onpointerup={onPointerUp} />
 
-{#if screen}
-  <div
-    class="cr-screen"
-    class:cr-dragging={!!room.dragging}
-    style:left={screen.x + "px"}
-    style:top={screen.y + "px"}
-    style:width={screen.width + "px"}
-    style:height={screen.height + "px"}
-  >
-    <!-- 3D viewport -->
-    <div
-      class="cr-viewport"
-      role="application"
-      style:perspective={perspective + "px"}
-      onpointerdown={onBackgroundPointerDown}
-      onwheel={onWheel}
-    >
-      <div
-        class="cr-world"
-        class:cr-world-animated={camera.animated}
-        style:transform={camera.worldTransform(perspective)}
-      >
-        <!-- Walls, floor and ceiling (tiled, see `tiles`) -->
-        {#each surfaces as surface (surface.name)}
-          <div class="cr-surface" style:transform={surface.transform}>
-            {#each tiles(surface.width, surface.height) as tile (tile.key)}
-              <div
-                class="cr-plane cr-tile {surface.name}"
-                style:width={tile.width + 1 + "px"}
-                style:height={tile.height + 1 + "px"}
-                style:transform={`translate3d(${tile.x - surface.width / 2}px, ${tile.y - surface.height / 2}px, 0)`}
-                style:background-size={`${surface.width}px ${surface.height}px`}
-                style:background-position={`${-tile.x}px ${-tile.y}px`}
-              ></div>
-            {/each}
-            {@render surface.content?.()}
-          </div>
-        {/each}
+<div class="ch-home" class:ch-dragging={!!home.dragging} class:ch-starting={home.phase !== "idle"}>
+  <!-- background art of the selected game -->
+  <div class="ch-art">
+    {#key art?.path}
+      {#if art}
+        <img
+          class="ch-art-image"
+          class:ch-art-portrait={!art.wide}
+          src={convertFileSrc(art.path)}
+          alt=""
+          draggable="false"
+          onerror={() => art && (failedArt[art.path] = true)}
+        />
+      {/if}
+    {/key}
+    <div class="ch-art-shade"></div>
+  </div>
 
-        <!-- TV stand -->
-        <div
-          class="cr-plane cr-stand-front"
-          style:width="1500px"
-          style:height={ROOM.floorY - STAND_TOP + "px"}
-          style:transform={place(0, (ROOM.floorY + STAND_TOP) / 2, STAND_FRONT_Z)}
-        ></div>
-        <div
-          class="cr-plane cr-stand-top"
-          style:width="1500px"
-          style:height="300px"
-          style:transform={place(0, STAND_TOP, STAND_FRONT_Z - 150, "rotateX(90deg)")}
-        ></div>
-
-        <!-- Console: front, side and top faces -->
-        <div
-          class="cr-plane cr-console-side"
-          style:width={CONSOLE.depth + "px"}
-          style:height={CONSOLE.height + "px"}
-          style:transform={place(
-            CONSOLE.x - CONSOLE.width / 2,
-            STAND_TOP - CONSOLE.height / 2,
-            CONSOLE.frontZ - CONSOLE.depth / 2,
-            "rotateY(-90deg)",
-          )}
-        ></div>
-        <div
-          class="cr-plane cr-console-top"
-          style:width={CONSOLE.width + "px"}
-          style:height={CONSOLE.depth + "px"}
-          style:transform={place(
-            CONSOLE.x,
-            STAND_TOP - CONSOLE.height,
-            CONSOLE.frontZ - CONSOLE.depth / 2,
-            "rotateX(90deg)",
-          )}
-        ></div>
-        <div
-          class="cr-plane cr-console"
-          class:cr-drop-active={room.dropTarget === "console"}
-          class:cr-console-reading={room.phase !== "idle"}
-          data-drop="console"
-          title={$t("insert_here")}
-          style:width={CONSOLE.width + "px"}
-          style:height={CONSOLE.height + "px"}
-          style:transform={place(CONSOLE.x, STAND_TOP - CONSOLE.height / 2, CONSOLE.frontZ)}
-        >
-          <div class="cr-console-shell cr-console-shell-left"></div>
-          <div class="cr-console-core">
-            <div class="cr-console-slot" bind:this={consoleSlot}></div>
-            <div class="cr-console-light"></div>
-          </div>
-          <div class="cr-console-shell cr-console-shell-right"></div>
-        </div>
-        {#if room.dragging}
-          <div
-            class="cr-plane cr-console-hint"
-            style:transform={place(CONSOLE.x, STAND_TOP - CONSOLE.height - 50, CONSOLE.frontZ)}
-          >
-            {$t("insert_here")}
-          </div>
-        {/if}
-
-      </div>
-    </div>
-
-    <!-- 2D overlays -->
-    {#if room.phase === "idle"}
-      <div class="cr-hint">{$t("hint")}</div>
-      <button class="cr-close" data-skin="default" title={$t("close")} onclick={() => room.close()}>✕</button>
-    {/if}
-
-    {#if room.openDrawer}
-      <div class="cr-folder" role="dialog" tabindex="-1">
-        <div class="cr-folder-header">
-          <button data-skin="transparent" onclick={() => room.closeDrawer()}>← {$t("back")}</button>
-          <span class="cr-folder-title">{$t(`drawers.${room.openDrawer}`)}</span>
-        </div>
-        <div class="cr-folder-list">
-          {#each room.drawerEntries as entry (entry.id)}
-            <div
-              class="cr-folder-item"
-              role="button"
-              tabindex="-1"
-              onpointerdown={(e) => {
-                if (e.button !== 0) return;
-                if ((e.target as HTMLElement).closest("button")) return;
-                room.startDrag({ entry }, e.clientX, e.clientY);
-              }}
+  <div class="ch-content">
+    <!-- game row -->
+    <section class="ch-games">
+      <div class="ch-section-title">{$t("games")}</div>
+      {#if home.discs.length === 0}
+        <div class="ch-empty">{$t("no_games")}</div>
+      {:else}
+        <div class="ch-row" bind:this={row} onwheel={onRowWheel}>
+          {#each home.discs as disc (disc.id)}
+            <button
+              class="ch-tile"
+              class:ch-tile-selected={home.selected?.id === disc.id}
+              class:ch-tile-held={home.dragging?.disc?.id === disc.id}
+              data-disc-id={disc.id}
+              title={disc.title}
+              onpointerdown={(e) => onTilePointerDown(e, disc)}
+              ondblclick={() => home.play(disc)}
             >
-              <FileIcon class="cr-folder-icon" path={entry.iconPath} umid={entry.iconUmid} />
-              <span class="cr-folder-name" title={entry.title}>{entry.title}</span>
-              <button data-skin="transparent" onclick={() => room.burn(entry)}>{$t("make_disc")}</button>
-              <button data-skin="default" onclick={() => room.openEntry(entry)}>{$t("open")}</button>
-            </div>
-          {:else}
-            <div class="cr-folder-empty">{$t("empty_folder")}</div>
+              {#if disc.cover && !failedArt[disc.cover]}
+                <img
+                  class="ch-tile-cover"
+                  src={convertFileSrc(disc.cover)}
+                  alt=""
+                  draggable="false"
+                  onerror={() => disc.cover && (failedArt[disc.cover] = true)}
+                />
+              {:else}
+                <FileIcon class="ch-tile-icon" path={disc.iconPath} umid={disc.iconUmid} draggable="false" />
+              {/if}
+            </button>
           {/each}
         </div>
-      </div>
-    {/if}
-
-    {#if room.toast}
-      <div class="cr-toast">{room.toast}</div>
-    {/if}
-
-    <!-- what is being held -->
-    {#if room.dragging}
-      <div class="cr-ghost" style:left={room.dragging.x + "px"} style:top={room.dragging.y + "px"}>
-        {#if room.dragging.disc}
-          <DiscFace
-            cover={room.dragging.disc.cover}
-            iconPath={room.dragging.disc.iconPath}
-            iconUmid={room.dragging.disc.iconUmid}
-          />
-        {:else if room.dragging.entry}
-          <DiscFace iconPath={room.dragging.entry.iconPath} iconUmid={room.dragging.entry.iconUmid} />
-        {/if}
-      </div>
-    {/if}
-
-    <!-- disc flying into the console slot -->
-    {#if inserting}
-      <div
-        class="cr-ghost cr-ghost-inserting"
-        class:cr-ghost-go={inserting.go}
-        style:left={(inserting.go ? inserting.toX : inserting.fromX) + "px"}
-        style:top={(inserting.go ? inserting.toY : inserting.fromY) + "px"}
-      >
-        <DiscFace cover={inserting.disc.cover} iconPath={inserting.disc.iconPath} iconUmid={inserting.disc.iconUmid} />
-      </div>
-    {/if}
-
-    <div class="cr-fade" class:cr-fade-on={room.phase === "leaving"}></div>
-  </div>
-{/if}
-
-{#snippet backWall()}
-  <!-- TV -->
-  <div
-    class="cr-plane cr-tv"
-    class:cr-tv-on={room.phase !== "idle"}
-    style:width={TV.width + 40 + "px"}
-    style:height={TV.height + 40 + "px"}
-    style:transform={placeOnWall(TV.x, TV.y - wallCenterY, TV.z + ROOM.halfDepth)}
-  >
-    <div class="cr-tv-screen">
-      {#if room.playing}
-        <div class="cr-tv-playing">
-          <div class="cr-tv-disc">
-            <DiscFace
-              cover={room.playing.cover}
-              iconPath={room.playing.iconPath}
-              iconUmid={room.playing.iconUmid}
-              spinning
-            />
-          </div>
-          <span class="cr-tv-loading">{$t("loading", { 0: room.playing.title })}</span>
-        </div>
-      {:else}
-        <span class="cr-tv-idle">{$t("title")}</span>
       {/if}
-    </div>
-  </div>
-{/snippet}
+    </section>
 
-{#snippet leftWall()}
-  <!-- Game shelf (left wall) -->
-  <div
-    class="cr-plane cr-shelf"
-    style:transform={placeOnWall(150, -80 - wallCenterY, 30)}
-  >
-    <div class="cr-panel-title">{$t("shelf")}</div>
-    {#if room.discCount === 0}
-      <div class="cr-shelf-empty">{$t("shelf_empty")}</div>
-    {:else}
-      <div class="cr-shelf-grid">
-        {#each room.pageDiscs as disc (disc.id)}
-          <div ondblclick={() => room.playDisc(disc)} role="presentation">
-            <ShelfDisc {disc} />
+    <!-- selected game -->
+    {#if home.selected}
+      <section class="ch-details">
+        <h1 class="ch-title">{home.selected.title}</h1>
+        <div class="ch-source">{home.selected.source}</div>
+        <div class="ch-actions">
+          <button class="ch-play" onclick={() => home.selected && home.play(home.selected)}>
+            ▶ {$t("play")}
+          </button>
+          {#if home.selected.burned}
+            <button
+              class="ch-secondary"
+              title={$t("remove_disc")}
+              onclick={() => home.selected && home.removeDisc(home.selected.id)}
+            >
+              {$t("remove_disc")}
+            </button>
+          {/if}
+        </div>
+      </section>
+    {/if}
+
+    <!-- bottom: library button, disc maker and console -->
+    <section class="ch-bottom">
+      <button class="ch-library-button" onclick={() => home.openLibrary()}>
+        <span class="ch-library-icon">▤</span>
+        {$t("library")}
+      </button>
+
+      <div class="ch-spacer"></div>
+
+      <div
+        class="ch-maker"
+        class:ch-drop-active={home.dropTarget === "maker"}
+        class:ch-maker-burning={!!home.burning}
+        data-drop="maker"
+      >
+        <div class="ch-maker-tray"><div class="ch-maker-blank"></div></div>
+        <div class="ch-card-text">
+          <div class="ch-card-title">{$t("disc_maker")}</div>
+          <div class="ch-card-hint">
+            {home.burning ? $t("burning", { 0: home.burning }) : $t("disc_maker_hint")}
           </div>
+        </div>
+      </div>
+
+      <div
+        class="ch-console"
+        class:ch-drop-active={home.dropTarget === "console"}
+        class:ch-console-reading={home.phase !== "idle"}
+        data-drop="console"
+      >
+        <div class="ch-console-body">
+          <div class="ch-console-shell ch-console-shell-left"></div>
+          <div class="ch-console-core">
+            <div class="ch-console-slot" bind:this={consoleSlot}></div>
+            <div class="ch-console-light"></div>
+          </div>
+          <div class="ch-console-shell ch-console-shell-right"></div>
+        </div>
+        <div class="ch-card-text">
+          <div class="ch-card-title">{$t("console")}</div>
+          <div class="ch-card-hint">{$t("insert_here")}</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- library: the desktop icons are covered, so files are reachable from here -->
+  {#if home.libraryOpen}
+    <div class="ch-library" role="dialog" tabindex="-1">
+      <div class="ch-library-header">
+        <span class="ch-library-title">{$t("library")}</span>
+        <button class="ch-secondary" onclick={() => home.closeLibrary()}>✕ {$t("close")}</button>
+      </div>
+      <div class="ch-library-tabs">
+        {#each DRAWERS as drawer (drawer)}
+          <button
+            class="ch-library-tab"
+            class:ch-library-tab-active={home.openDrawer === drawer}
+            onclick={() => home.loadDrawer(drawer)}
+          >
+            {$t(`drawers.${drawer}`)}
+          </button>
         {/each}
       </div>
-    {/if}
-    {#if room.pageCount > 1}
-      <div class="cr-shelf-pager" role="presentation" onpointerdown={(e) => e.stopPropagation()}>
-        <button data-skin="default" disabled={room.page === 0} onclick={() => (room.page = room.page - 1)}>
-          ◀ {$t("prev")}
-        </button>
-        <span>{$t("page", { 0: String(room.page + 1), 1: String(room.pageCount) })}</span>
-        <button
-          data-skin="default"
-          disabled={room.page >= room.pageCount - 1}
-          onclick={() => (room.page = room.page + 1)}
-        >
-          {$t("next")} ▶
-        </button>
+      <div class="ch-library-hint">{$t("library_hint")}</div>
+      <div class="ch-library-list">
+        {#each home.drawerEntries as entry (entry.id)}
+          <div
+            class="ch-library-item"
+            role="button"
+            tabindex="-1"
+            onpointerdown={(e) => {
+              if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+              home.startDrag({ entry }, e.clientX, e.clientY);
+            }}
+            ondblclick={() => home.openEntry(entry)}
+          >
+            <FileIcon class="ch-library-item-icon" path={entry.iconPath} umid={entry.iconUmid} />
+            <span class="ch-library-item-name" title={entry.title}>{entry.title}</span>
+            <button class="ch-secondary" onclick={() => home.burn(entry)}>{$t("make_disc")}</button>
+            <button class="ch-small-play" onclick={() => home.openEntry(entry)}>{$t("open")}</button>
+          </div>
+        {:else}
+          <div class="ch-empty">{$t("empty_folder")}</div>
+        {/each}
       </div>
-    {/if}
-  </div>
-{/snippet}
+    </div>
+  {/if}
 
-{#snippet rightWall()}
-  <!-- Disc maker (right wall, near the back) -->
-  <div
-    class="cr-plane cr-maker"
-    class:cr-drop-active={room.dropTarget === "maker"}
-    class:cr-maker-burning={!!room.burning}
-    data-drop="maker"
-    style:transform={placeOnWall(-820, -20 - wallCenterY, 30)}
-  >
-    <div class="cr-panel-title">{$t("disc_maker")}</div>
-    <div class="cr-maker-tray">
-      <div class="cr-maker-blank"></div>
+  <!-- starting screen -->
+  {#if home.phase === "starting" && home.playing}
+    <div class="ch-starting-screen">
+      <div class="ch-starting-disc">
+        <DiscFace
+          cover={home.playing.cover}
+          iconPath={home.playing.iconPath}
+          iconUmid={home.playing.iconUmid}
+          spinning
+        />
+      </div>
+      <div class="ch-starting-text">{$t("starting", { 0: home.playing.title })}</div>
     </div>
-    <div class="cr-maker-status">
-      {room.burning ? $t("burning", { 0: room.burning }) : $t("disc_maker_hint")}
+  {/if}
+
+  {#if home.toast}
+    <div class="ch-toast">{home.toast}</div>
+  {/if}
+
+  <!-- what is being held -->
+  {#if home.dragging}
+    <div class="ch-ghost" style:left={home.dragging.x + "px"} style:top={home.dragging.y + "px"}>
+      {#if home.dragging.disc}
+        <DiscFace
+          cover={home.dragging.disc.cover}
+          iconPath={home.dragging.disc.iconPath}
+          iconUmid={home.dragging.disc.iconUmid}
+        />
+      {:else if home.dragging.entry}
+        <DiscFace iconPath={home.dragging.entry.iconPath} iconUmid={home.dragging.entry.iconUmid} />
+      {/if}
     </div>
-  </div>
-  <!-- File sorter (right wall, near the front) -->
-  <div class="cr-plane cr-sorter" style:transform={placeOnWall(250, -60 - wallCenterY, 30)}>
-    <div class="cr-panel-title">{$t("file_sorter")}</div>
-    <div class="cr-sorter-drawers" role="presentation" onpointerdown={(e) => e.stopPropagation()}>
-      {#each DRAWERS as drawer (drawer)}
-        <button class="cr-sorter-drawer" onclick={() => room.openSorterDrawer(drawer)}>
-          <span class="cr-sorter-handle"></span>
-          <span class="cr-sorter-label">{$t(`drawers.${drawer}`)}</span>
-        </button>
-      {/each}
+  {/if}
+
+  <!-- disc flying into the console slot -->
+  {#if inserting}
+    <div
+      class="ch-ghost ch-ghost-inserting"
+      class:ch-ghost-go={inserting.go}
+      style:left={(inserting.go ? inserting.toX : inserting.fromX) + "px"}
+      style:top={(inserting.go ? inserting.toY : inserting.fromY) + "px"}
+    >
+      <DiscFace cover={inserting.disc.cover} iconPath={inserting.disc.iconPath} iconUmid={inserting.disc.iconUmid} />
     </div>
-  </div>
-{/snippet}
+  {/if}
+</div>

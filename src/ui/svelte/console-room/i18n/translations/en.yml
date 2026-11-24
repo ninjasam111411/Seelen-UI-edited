@@ -1,26 +1,25 @@
-title: Console Room
-hint: Drag to look around · Scroll to walk · Drop a disc in the console to play
-close: Close
-shelf: Game Shelf
-shelf_empty: No games found yet. Drag apps onto the Disc Maker to make discs.
-page: Page {{0}} of {{1}}
-prev: Previous
-next: Next
+title: Console Home
+games: Games
+no_games: No games found yet. Open the Library and drag an app onto the Disc Maker to add it here.
+play: Play
+remove_disc: Remove disc
+starting: Starting {{0}}…
 console: Console
-insert_here: Drop a disc here
-loading: Starting {{0}}…
+insert_here: Drop a disc here to play
 disc_maker: Disc Maker
-disc_maker_hint: Drop any app or file here to make a disc
+disc_maker_hint: Drop an app or file here to make a disc
 burning: Burning {{0}}…
 burned: Disc made for {{0}}
 already_burned: "{{0}} already has a disc"
-remove_disc: Remove disc
-file_sorter: File Sorter
+library: Library
+library_hint: Drag anything onto the Disc Maker to add it to your games
 open: Open
 make_disc: Make disc
-empty_folder: This drawer is empty
-back: Back
+empty_folder: This folder is empty
+close: Close
 launch_failed: Couldn't start {{0}}
+source_app: App
+source_file: File
 drawers:
   apps: Apps
   desktop: Desktop

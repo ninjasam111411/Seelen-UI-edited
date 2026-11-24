@@ -14,6 +14,10 @@ pub struct InstalledGame {
     pub launch: String,
     /// cover art image (portrait), when the launcher keeps one on disk
     pub cover: Option<PathBuf>,
+    /// wide background art, when the launcher keeps one on disk
+    pub hero: Option<PathBuf>,
+    /// app user model id, used to show the icon of store games
+    pub umid: Option<String>,
     /// executable of the game, used to show its icon
     pub executable: Option<PathBuf>,
 }
@@ -24,4 +28,8 @@ pub struct InstalledGame {
 pub enum GameSource {
     Steam,
     Epic,
+    /// Microsoft Store / Xbox (GDK) games
+    Store,
+    /// known game launchers found in the start menu (e.g. Roblox Player)
+    Shortcut,
 }
