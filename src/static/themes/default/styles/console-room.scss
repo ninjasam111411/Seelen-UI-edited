@@ -96,30 +96,7 @@ body {
   line-height: 1.5;
 }
 
-// ─── Idle screen and menu ───────────────────────────────────────────────────
-
-.ch-idle {
-  margin-top: auto;
-  margin-bottom: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  pointer-events: none;
-  animation: ch-fade-in 0.35s ease both;
-}
-
-.ch-idle-title {
-  font-size: 40px;
-  font-weight: 700;
-  text-shadow: 0 4px 24px rgb(0 0 0 / 0.6);
-}
-
-.ch-idle-hint {
-  font-size: 16px;
-  color: rgb(242 244 248 / 0.8);
-  text-shadow: 0 2px 10px rgb(0 0 0 / 0.6);
-  animation: ch-breathe 2.4s ease-in-out infinite alternate;
-}
+// ─── Menu ───────────────────────────────────────────────────
 
 .ch-menu {
   display: flex;
@@ -722,15 +699,6 @@ body {
 @keyframes ch-art-in {
   from {
     opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes ch-breathe {
-  from {
-    opacity: 0.55;
   }
   to {
     opacity: 1;

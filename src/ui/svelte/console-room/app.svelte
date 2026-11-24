@@ -7,6 +7,7 @@
   import { DRAWERS, type Disc, home } from "./state.svelte.ts";
   import DiscFace from "./components/DiscFace.svelte";
   import GameCover from "./components/GameCover.svelte";
+  import RoomScene from "./components/RoomScene.svelte";
 
   onMount(() => {
     Widget.getCurrent().ready();
@@ -36,13 +37,33 @@
     artDisc ? [...artDisc.title].reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) % 360, 7) : 225,
   );
 
-  /** clicking the screen (anything that isn't a control) opens or closes the menu */
+  /** zoomed into the room's TV: while turning on, and right before zooming back out */
+  let roomZoomed = $state(false);
+
+  /** clicking the TV turns the console on: zoom into it, then show the home menu */
+  function turnOn() {
+    if (roomZoomed) return;
+    roomZoomed = true;
+    setTimeout(() => home.openMenu(), 650);
+  }
+
+  // leaving the menu shows the room still zoomed into the TV, then zooms back out
+  let wasMenuOpen = false;
+  $effect(() => {
+    const open = home.menuOpen;
+    if (wasMenuOpen && !open) {
+      // after the room has been drawn zoomed in, so the zoom out is animated
+      setTimeout(() => (roomZoomed = false), 40);
+    }
+    wasMenuOpen = open;
+  });
+
+  /** in the menu, clicking anything that isn't a control goes back to the room */
   function onScreenClick(e: MouseEvent) {
-    if (justDragged || home.phase !== "idle") return;
+    if (justDragged || home.phase !== "idle" || !home.menuOpen) return;
     const target = e.target as HTMLElement;
     if (target.closest("button, [data-drop], .ch-row, .ch-library, [role='button']")) return;
-    if (home.menuOpen) home.closeMenu();
-    else home.openMenu();
+    home.closeMenu();
   }
 
   function onKeyDown(e: KeyboardEvent) {
@@ -138,6 +159,9 @@
   style:--ch-art-hue={artHue}
   onclick={onScreenClick}
 >
+  {#if !home.menuOpen}
+    <RoomScene tvTitle={$t("title")} tvHint={$t("turn_on")} zoomed={roomZoomed} onTurnOn={turnOn} />
+  {:else}
   <!-- background art of the selected game -->
   <div class="ch-art">
     {#key art?.path}
@@ -156,14 +180,6 @@
   </div>
 
   <div class="ch-content">
-    {#if !home.menuOpen}
-      <div class="ch-idle">
-        {#if home.selected}
-          <div class="ch-idle-title">{home.selected.title}</div>
-        {/if}
-        <div class="ch-idle-hint">{$t("click_to_open")}</div>
-      </div>
-    {:else}
     <div class="ch-menu">
     <!-- game row -->
     <section class="ch-games">
@@ -212,20 +228,20 @@
     {/if}
 
     </div>
-    {/if}
 
-    <!-- bottom: library button, disc maker and console (the console is always there) -->
+    <!-- bottom: back to the room, library, disc maker and console -->
     <section class="ch-bottom">
-      {#if home.menuOpen}
-        <button class="ch-library-button" onclick={() => home.openLibrary()}>
+      <button class="ch-library-button" onclick={() => home.closeMenu()} title={$t("power_off")}>
+        <span class="ch-library-icon">⏻</span>
+        {$t("power_off")}
+      </button>
+      <button class="ch-library-button" onclick={() => home.openLibrary()}>
           <span class="ch-library-icon">▤</span>
           {$t("library")}
         </button>
-      {/if}
 
       <div class="ch-spacer"></div>
 
-      {#if home.menuOpen}
       <div
         class="ch-maker"
         class:ch-drop-active={home.dropTarget === "maker"}
@@ -240,7 +256,6 @@
           </div>
         </div>
       </div>
-      {/if}
 
       <div
         class="ch-console"
@@ -258,11 +273,13 @@
         </div>
         <div class="ch-card-text">
           <div class="ch-card-title">{$t("console")}</div>
-          <div class="ch-card-hint">{home.menuOpen ? $t("insert_here") : $t("console_idle_hint")}</div>
+          <div class="ch-card-hint">{$t("insert_here")}</div>
         </div>
       </div>
     </section>
   </div>
+
+  {/if}
 
   <!-- library: the desktop icons are covered, so files are reachable from here -->
   {#if home.libraryOpen}

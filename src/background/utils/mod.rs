@@ -1,6 +1,7 @@
 pub mod bond;
 pub mod constants;
 pub mod discord;
+pub mod edited_updater;
 pub mod event_manager;
 pub mod integrity;
 pub mod lock_free;
