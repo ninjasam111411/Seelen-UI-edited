@@ -11,11 +11,16 @@ const STEAM_NON_GAMES: &[&str] = &[
     "250820",  // SteamVR
 ];
 
-/// Start menu shortcuts of games or game launchers that aren't found any other way.
-/// Matched against the shortcut name, case insensitive.
-const KNOWN_GAME_SHORTCUTS: &[&str] = &[
+/// Start menu entries of games or game launchers that aren't found any other way.
+/// Matched against the entry name, case insensitive.
+const KNOWN_GAME_NAMES: &[&str] = &[
     "Roblox Player",
+    "Minecraft",
     "Minecraft Launcher",
+    "Minecraft for Windows",
+    "Minecraft Java Edition",
+    "Minecraft: Java Edition",
+    "Minecraft Education",
     "Riot Client",
     "League of Legends",
     "VALORANT",
@@ -24,6 +29,54 @@ const KNOWN_GAME_SHORTCUTS: &[&str] = &[
     "Rocket League",
     "Among Us",
     "Bloons TD 6",
+];
+
+/// Package family prefixes of store games that don't ship a `MicrosoftGame.config`.
+const KNOWN_STORE_FAMILIES: &[&str] = &[
+    "Microsoft.4297127D64EC6_",             // Minecraft Launcher
+    "Microsoft.MinecraftUWP_",              // Minecraft for Windows (Bedrock)
+    "Microsoft.MinecraftEducationEdition_", // Minecraft Education
+    "ROBLOXCORPORATION.ROBLOX_",            // Roblox (store app)
+];
+
+/// Launchers and tools whose folders can look like a game's but aren't games themselves.
+const NON_GAME_NAMES: &[&str] = &[
+    "unity",
+    "unity hub",
+    "unreal engine",
+    "epic games launcher",
+    "steam",
+    "gog galaxy",
+    "ubisoft connect",
+    "ea",
+    "ea app",
+    "itch",
+];
+
+/// Parts of executable names that are never the game itself.
+const NON_GAME_EXE_PARTS: &[&str] = &[
+    "unins",
+    "uninstall",
+    "crash",
+    "setup",
+    "redist",
+    "vcredist",
+    "dxsetup",
+    "report",
+    "updater",
+    "helper",
+];
+
+/// Files that a game engine or a game store SDK leaves next to the game executable.
+const GAME_MARKER_FILES: &[&str] = &[
+    "unityplayer.dll",
+    "gameassembly.dll",
+    "steam_api.dll",
+    "steam_api64.dll",
+    "eossdk-win64-shipping.dll",
+    "galaxy.dll",
+    "galaxy64.dll",
+    "renpy",
 ];
 
 /// OS contract of the games module: where each launcher keeps its data.
@@ -39,6 +92,18 @@ pub trait GamesSystem: Sized + Send + Sync {
 
     /// Whether a packaged (store) app is a game: Xbox/GDK games ship a `MicrosoftGame.config`.
     fn is_store_game(&self, umid: &str) -> bool;
+
+    /// `(id, name, executable)` of the games installed with GOG Galaxy.
+    fn gog_games(&self) -> Vec<(String, String, PathBuf)>;
+
+    /// `(id, install folder)` of the games installed with Ubisoft Connect.
+    fn ubisoft_games(&self) -> Vec<(String, PathBuf)>;
+
+    /// Folder where the itch.io app installs games, if any.
+    fn itch_apps_dir(&self) -> Option<PathBuf>;
+
+    /// Folders where people usually keep games downloaded from websites.
+    fn game_folders(&self) -> Vec<PathBuf>;
 }
 
 /// Flattens the quoted `"key" "value"` pairs of a Valve KeyValues (`.vdf` / `.acf`) file,
@@ -153,10 +218,7 @@ pub fn shortcut_game(
     target: Option<&Path>,
     umid: Option<&str>,
 ) -> Option<InstalledGame> {
-    let is_known = KNOWN_GAME_SHORTCUTS
-        .iter()
-        .any(|known| name.trim().eq_ignore_ascii_case(known));
-    if !is_known {
+    if !is_known_game_name(name) {
         return None;
     }
     Some(InstalledGame {
@@ -169,6 +231,164 @@ pub fn shortcut_game(
         umid: umid.map(str::to_owned),
         executable: target.map(Path::to_path_buf),
     })
+}
+
+/// Whether a start menu entry name is one of the known games or game launchers.
+pub fn is_known_game_name(name: &str) -> bool {
+    KNOWN_GAME_NAMES
+        .iter()
+        .any(|known| name.trim().eq_ignore_ascii_case(known))
+}
+
+/// Whether a packaged app is a known store game, by its package family.
+pub fn is_known_store_game(umid: &str) -> bool {
+    let umid = umid.to_lowercase();
+    KNOWN_STORE_FAMILIES
+        .iter()
+        .any(|family| umid.starts_with(&family.to_lowercase()))
+}
+
+pub fn is_non_game_name(name: &str) -> bool {
+    NON_GAME_NAMES
+        .iter()
+        .any(|known| name.trim().eq_ignore_ascii_case(known))
+}
+
+/// A game executable outside of any launcher, opened directly.
+pub fn local_game(executable: &Path, name: &str, source: GameSource) -> InstalledGame {
+    let prefix = match source {
+        GameSource::Gog => "gog",
+        GameSource::Itch => "itch",
+        _ => "local",
+    };
+    InstalledGame {
+        id: format!("{prefix}:{}", executable.to_string_lossy().to_lowercase()),
+        name: name.to_owned(),
+        source,
+        launch: executable.to_string_lossy().to_string(),
+        cover: None,
+        hero: None,
+        umid: None,
+        executable: Some(executable.to_path_buf()),
+    }
+}
+
+/// A Ubisoft Connect game, opened through the launcher.
+pub fn ubisoft_game(id: &str, install_dir: &Path) -> Option<InstalledGame> {
+    let name = install_dir.file_name()?.to_string_lossy().to_string();
+    Some(InstalledGame {
+        id: format!("ubisoft:{id}"),
+        name,
+        source: GameSource::Ubisoft,
+        launch: format!("uplay://launch/{id}/0"),
+        cover: None,
+        hero: None,
+        umid: None,
+        executable: None,
+    })
+}
+
+/// Whether an executable can't be the game itself (uninstallers, crash reporters...).
+pub fn is_non_game_exe(file_name: &str) -> bool {
+    let name = file_name.to_lowercase();
+    !name.ends_with(".exe") || NON_GAME_EXE_PARTS.iter().any(|part| name.contains(part))
+}
+
+/// Whether a folder holds a game, from the names of its entries (lower case) and the executable
+/// to check: engine or store SDK files next to it, `<exe>_Data` (Unity), `<exe>.pck` (Godot) or
+/// an Unreal shipping build.
+pub fn is_game_folder(exe_name: &str, entries: &[String]) -> bool {
+    let exe = exe_name.to_lowercase();
+    if is_non_game_exe(&exe) {
+        return false;
+    }
+    let stem = exe.trim_end_matches(".exe");
+    if exe.ends_with("-win64-shipping.exe") {
+        return true;
+    }
+    let data_dir = format!("{stem}_data");
+    let godot_pack = format!("{stem}.pck");
+    entries.iter().any(|entry| {
+        GAME_MARKER_FILES.contains(&entry.as_str()) || *entry == data_dir || *entry == godot_pack
+    })
+}
+
+/// The game executable of a folder: the one named like the folder, the one with a `_Data` folder
+/// next to it, or the only one, if the folder looks like a game's.
+pub fn pick_game_exe(folder_name: &str, entries: &[String]) -> Option<String> {
+    let exes: Vec<&String> = entries.iter().filter(|e| !is_non_game_exe(e)).collect();
+    let normalized_folder = normalize_name(folder_name);
+    let candidate = exes
+        .iter()
+        .find(|exe| normalize_name(exe.trim_end_matches(".exe")) == normalized_folder)
+        .or_else(|| {
+            exes.iter().find(|exe| {
+                let data_dir = format!("{}_data", exe.trim_end_matches(".exe"));
+                entries.contains(&data_dir)
+            })
+        })
+        .or_else(|| if exes.len() == 1 { exes.first() } else { None })?;
+    is_game_folder(candidate, entries).then(|| (*candidate).clone())
+}
+
+/// A readable name from an executable or folder name.
+pub fn display_name_from(raw: &str) -> String {
+    let base = raw
+        .trim_end_matches(".exe")
+        .trim_end_matches(".EXE")
+        .trim_end_matches("-Win64-Shipping");
+    let spaced: String = base
+        .chars()
+        .map(|c| if c == '_' || c == '-' { ' ' } else { c })
+        .collect();
+    spaced.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Lower case letters and digits only, to compare names written differently.
+pub fn normalize_name(name: &str) -> String {
+    name.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Steam app id of a game from a Steam store search response, only when a result's name is
+/// the same as the game's (so a different game's art is never used).
+pub fn steam_search_match(search_json: &str, name: &str) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_str(search_json).ok()?;
+    let wanted = normalize_name(name);
+    if wanted.is_empty() {
+        return None;
+    }
+    json.get("items")?.as_array()?.iter().find_map(|item| {
+        let item_name = item.get("name")?.as_str()?;
+        if normalize_name(item_name) != wanted {
+            return None;
+        }
+        match item.get("id")? {
+            serde_json::Value::Number(n) => Some(n.to_string()),
+            serde_json::Value::String(s) => Some(s.clone()),
+            _ => None,
+        }
+    })
+}
+
+/// Public Steam store image urls of an app: `(cover candidates, hero candidates)`.
+pub fn steam_art_urls(appid: &str) -> (Vec<String>, Vec<String>) {
+    let bases = [
+        format!("https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appid}"),
+        format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}"),
+    ];
+    (
+        bases
+            .iter()
+            .map(|b| format!("{b}/library_600x900.jpg"))
+            .collect(),
+        bases
+            .iter()
+            .map(|b| format!("{b}/library_hero.jpg"))
+            .collect(),
+    )
 }
 
 /// Reads an Epic Games launcher manifest (`*.item`, JSON). Engine/tool installs are skipped.
@@ -312,6 +532,96 @@ mod tests {
         let json = r#"{"DisplayName":"Unreal Engine","AppName":"UE_5.4","CatalogNamespace":"ue",
             "CatalogItemId":"x","AppCategories":["engines"]}"#;
         assert_eq!(epic_game(json), None);
+    }
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_lowercase()).collect()
+    }
+
+    #[test]
+    fn detects_unity_unreal_and_godot_games() {
+        assert!(is_game_folder(
+            "AmongUs.exe",
+            &names(&["AmongUs.exe", "UnityPlayer.dll", "AmongUs_Data"])
+        ));
+        assert!(is_game_folder(
+            "MyGame-Win64-Shipping.exe",
+            &names(&["MyGame-Win64-Shipping.exe"])
+        ));
+        assert!(is_game_folder(
+            "cool.exe",
+            &names(&["cool.exe", "cool.pck"])
+        ));
+        assert!(is_game_folder(
+            "Story.exe",
+            &names(&["Story.exe", "renpy", "game"])
+        ));
+    }
+
+    #[test]
+    fn ignores_normal_apps_and_uninstallers() {
+        assert!(!is_game_folder(
+            "Discord.exe",
+            &names(&["Discord.exe", "ffmpeg.dll", "resources"])
+        ));
+        assert!(!is_game_folder(
+            "unins000.exe",
+            &names(&["unins000.exe", "UnityPlayer.dll"])
+        ));
+        assert!(!is_game_folder(
+            "UnityCrashHandler64.exe",
+            &names(&["UnityCrashHandler64.exe", "UnityPlayer.dll"])
+        ));
+    }
+
+    #[test]
+    fn picks_the_game_exe_of_a_folder() {
+        let entries = names(&[
+            "UnityCrashHandler64.exe",
+            "Hollow Knight.exe",
+            "Hollow Knight_Data",
+            "UnityPlayer.dll",
+        ]);
+        assert_eq!(
+            pick_game_exe("Hollow Knight", &entries),
+            Some("hollow knight.exe".into())
+        );
+        let entries = names(&["game.exe", "game_Data", "UnityPlayer.dll", "unins000.exe"]);
+        assert_eq!(
+            pick_game_exe("Something Else", &entries),
+            Some("game.exe".into())
+        );
+        let entries = names(&["app.exe", "tool.exe", "readme.txt"]);
+        assert_eq!(pick_game_exe("Tools", &entries), None);
+    }
+
+    #[test]
+    fn readable_names() {
+        assert_eq!(display_name_from("Hollow_Knight.exe"), "Hollow Knight");
+        assert_eq!(display_name_from("MyGame-Win64-Shipping.exe"), "MyGame");
+    }
+
+    #[test]
+    fn minecraft_is_found() {
+        assert!(is_known_game_name("Minecraft Launcher"));
+        assert!(is_known_game_name("minecraft"));
+        assert!(is_known_store_game(
+            "Microsoft.4297127D64EC6_8wekyb3d8bbwe!Minecraft"
+        ));
+        assert!(is_known_store_game(
+            "Microsoft.MinecraftUWP_8wekyb3d8bbwe!App"
+        ));
+        assert!(!is_known_store_game(
+            "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"
+        ));
+    }
+
+    #[test]
+    fn steam_search_needs_the_same_name() {
+        let json = r#"{"total":2,"items":[{"id":945360,"name":"Among Us VR"},{"id":945361,"name":"Among Us"}]}"#;
+        assert_eq!(steam_search_match(json, "Among Us"), Some("945361".into()));
+        assert_eq!(steam_search_match(json, "among-us"), Some("945361".into()));
+        assert_eq!(steam_search_match(json, "Minecraft"), None);
     }
 
     #[test]

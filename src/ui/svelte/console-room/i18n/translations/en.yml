@@ -1,4 +1,6 @@
 title: Console Home
+click_to_open: Click anywhere to open the menu
+console_idle_hint: Open the menu and drag a game here
 games: Games
 no_games: No games found yet. Open the Library and drag an app onto the Disc Maker to add it here.
 play: Play

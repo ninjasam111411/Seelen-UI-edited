@@ -32,4 +32,9 @@ pub enum GameSource {
     Store,
     /// known game launchers found in the start menu (e.g. Roblox Player)
     Shortcut,
+    Gog,
+    Ubisoft,
+    Itch,
+    /// games downloaded from a website, found by the files next to their executable
+    Local,
 }

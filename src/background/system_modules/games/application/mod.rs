@@ -1,25 +1,33 @@
+mod art;
 #[cfg(windows)]
 mod windows;
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::LazyLock,
 };
 
-use seelen_core::system_state::InstalledGame;
+use seelen_core::system_state::{GameSource, InstalledGame};
 
 use super::domain::{
-    GamesSystem, epic_game, pick_steam_cover, pick_steam_hero, shortcut_game, steam_app_manifest,
-    steam_game, steam_library_paths, store_game,
+    GamesSystem, display_name_from, epic_game, is_game_folder, is_known_game_name,
+    is_known_store_game, is_non_game_name, local_game, pick_game_exe, pick_steam_cover,
+    pick_steam_hero, shortcut_game, steam_app_manifest, steam_game, steam_library_paths,
+    store_game, ubisoft_game,
 };
-use crate::system_modules::start::StartMenuManager;
+use crate::{system_modules::start::StartMenuManager, utils::lock_free::TracedMutex};
+
+/// Folder entries read when looking for a game, so a huge folder can't stall the scan.
+const MAX_FOLDER_ENTRIES: usize = 400;
 
 #[cfg(windows)]
 type Platform = windows::WindowsGames;
 
 pub struct GamesManager {
     platform: Platform,
+    /// whether the folder of a start menu shortcut target is a game's, by folder
+    game_folder_cache: TracedMutex<HashMap<PathBuf, bool>>,
 }
 
 impl GamesManager {
@@ -31,6 +39,7 @@ impl GamesManager {
     fn create() -> Self {
         Self {
             platform: Platform::create(),
+            game_folder_cache: TracedMutex::new(HashMap::new()),
         }
     }
 
@@ -45,6 +54,13 @@ impl GamesManager {
             games.extend(scan_epic(&dir));
         }
         games.extend(self.scan_start_menu());
+        games.extend(self.scan_gog_and_ubisoft());
+        if let Some(dir) = self.platform.itch_apps_dir() {
+            games.extend(scan_game_folders(&dir, GameSource::Itch));
+        }
+        for folder in self.platform.game_folders() {
+            games.extend(scan_game_folders(&folder, GameSource::Local));
+        }
 
         // the same game can come from several sources (e.g. a launcher shortcut and the store)
         let mut seen_ids = HashSet::new();
@@ -52,31 +68,141 @@ impl GamesManager {
         games.retain(|game| {
             seen_ids.insert(game.id.clone()) && seen_names.insert(game.name.to_lowercase())
         });
+        games.retain(|game| !is_non_game_name(&game.name));
         games.sort_by_key(|game| game.name.to_lowercase());
+
+        // cover art found online for games without it on disk (filled in the background)
+        art::apply(&mut games);
+        art::request(&games);
         games
     }
 }
 
 impl GamesManager {
-    /// Store (Xbox/GDK) games and known launcher shortcuts, from the start menu entries.
+    /// Store games, known launchers and games downloaded from websites, from the start menu.
     fn scan_start_menu(&self) -> Vec<InstalledGame> {
         StartMenuManager::instance()
             .get_all()
             .iter()
             .filter_map(|item| match (&item.target, &item.umid) {
-                (None, Some(umid)) if self.platform.is_store_game(umid) => {
-                    Some(store_game(umid, &item.display_name))
+                (None, Some(umid)) => {
+                    let is_game = is_known_store_game(umid)
+                        || is_known_game_name(&item.display_name)
+                        || self.platform.is_store_game(umid);
+                    is_game.then(|| store_game(umid, &item.display_name))
                 }
-                (None, _) => None,
-                (Some(target), umid) => shortcut_game(
-                    &item.path,
-                    &item.display_name,
-                    Some(target),
-                    umid.as_deref(),
-                ),
+                (None, None) => None,
+                (Some(target), umid) => {
+                    shortcut_game(
+                        &item.path,
+                        &item.display_name,
+                        Some(target),
+                        umid.as_deref(),
+                    )
+                    .or_else(|| {
+                        self.is_local_game_target(target).then(|| {
+                            let mut game =
+                                local_game(target, &item.display_name, GameSource::Local);
+                            // the shortcut keeps the arguments and working folder it needs
+                            game.launch = item.path.to_string_lossy().to_string();
+                            game
+                        })
+                    })
+                }
             })
             .collect()
     }
+
+    /// Whether a shortcut target is a game outside of the launchers already scanned.
+    fn is_local_game_target(&self, target: &Path) -> bool {
+        let lower = target.to_string_lossy().to_lowercase();
+        let in_launcher = lower.contains("\\steamapps\\")
+            || lower.contains("\\epic games\\")
+            || lower.contains("\\windowsapps\\");
+        let (Some(dir), Some(exe)) = (target.parent(), target.file_name()) else {
+            return false;
+        };
+        if in_launcher {
+            return false;
+        }
+        let exe = exe.to_string_lossy().to_string();
+        let key = target.to_path_buf();
+        if let Some(cached) = self.game_folder_cache.lock().get(&key) {
+            return *cached;
+        }
+        let is_game = is_game_folder(&exe, &folder_entries(dir));
+        self.game_folder_cache.lock().insert(key, is_game);
+        is_game
+    }
+
+    fn scan_gog_and_ubisoft(&self) -> Vec<InstalledGame> {
+        let gog = self
+            .platform
+            .gog_games()
+            .into_iter()
+            .map(|(_, name, exe)| local_game(&exe, &name, GameSource::Gog));
+        let ubisoft = self
+            .platform
+            .ubisoft_games()
+            .into_iter()
+            .filter_map(|(id, dir)| ubisoft_game(&id, &dir));
+        gog.chain(ubisoft).collect()
+    }
+}
+
+/// Lower case names of a folder's entries.
+fn folder_entries(dir: &Path) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .take(MAX_FOLDER_ENTRIES)
+                .map(|e| e.file_name().to_string_lossy().to_lowercase())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Each subfolder of `root` that holds a game (directly or one folder deeper) becomes a game.
+fn scan_game_folders(root: &Path, source: GameSource) -> Vec<InstalledGame> {
+    let Ok(children) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut games = Vec::new();
+    for child in children.flatten().take(MAX_FOLDER_ENTRIES) {
+        let dir = child.path();
+        if !dir.is_dir() {
+            continue;
+        }
+        let name = child.file_name().to_string_lossy().to_string();
+        let found = find_game_exe(&dir, &name).or_else(|| {
+            // itch.io and zip downloads often add one more folder level
+            std::fs::read_dir(&dir)
+                .ok()?
+                .flatten()
+                .take(20)
+                .find_map(|inner| {
+                    let inner_dir = inner.path();
+                    inner_dir
+                        .is_dir()
+                        .then(|| find_game_exe(&inner_dir, &inner.file_name().to_string_lossy()))
+                        .flatten()
+                })
+        });
+        if let Some(exe) = found {
+            games.push(local_game(&exe, &display_name_from(&name), source));
+        }
+    }
+    games
+}
+
+fn find_game_exe(dir: &Path, folder_name: &str) -> Option<PathBuf> {
+    let entries = folder_entries(dir);
+    let exe_lower = pick_game_exe(folder_name, &entries)?;
+    // entries are lower case: find the real file name
+    std::fs::read_dir(dir).ok()?.flatten().find_map(|e| {
+        (e.file_name().to_string_lossy().to_lowercase() == exe_lower).then(|| e.path())
+    })
 }
 
 fn scan_steam(root: &Path) -> Vec<InstalledGame> {

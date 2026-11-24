@@ -6,6 +6,7 @@
   import { t } from "./i18n/index.ts";
   import { DRAWERS, type Disc, home } from "./state.svelte.ts";
   import DiscFace from "./components/DiscFace.svelte";
+  import GameCover from "./components/GameCover.svelte";
 
   onMount(() => {
     Widget.getCurrent().ready();
@@ -21,13 +22,34 @@
     null,
   );
   let failedArt = $state<Record<string, boolean>>({});
+  /** a drag just ended: the click that follows must not open or close the menu */
+  let justDragged = false;
 
+  const artDisc = $derived(home.phase !== "idle" && home.playing ? home.playing : home.selected);
   const art = $derived.by(() => {
-    const disc = home.phase !== "idle" && home.playing ? home.playing : home.selected;
-    if (!disc) return null;
-    const path = disc.hero ?? disc.cover;
-    return path && !failedArt[path] ? { path, wide: !!disc.hero } : null;
+    if (!artDisc) return null;
+    const path = artDisc.hero ?? artDisc.cover;
+    return path && !failedArt[path] ? { path, wide: !!artDisc.hero } : null;
   });
+  /** background color for games without art, matching their generated cover */
+  const artHue = $derived(
+    artDisc ? [...artDisc.title].reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) % 360, 7) : 225,
+  );
+
+  /** clicking the screen (anything that isn't a control) opens or closes the menu */
+  function onScreenClick(e: MouseEvent) {
+    if (justDragged || home.phase !== "idle") return;
+    const target = e.target as HTMLElement;
+    if (target.closest("button, [data-drop], .ch-row, .ch-library, [role='button']")) return;
+    if (home.menuOpen) home.closeMenu();
+    else home.openMenu();
+  }
+
+  function onKeyDown(e: KeyboardEvent) {
+    if (e.key !== "Escape") return;
+    if (home.libraryOpen) home.closeLibrary();
+    else if (home.menuOpen) home.closeMenu();
+  }
 
   function onTilePointerDown(e: PointerEvent, disc: Disc) {
     if (e.button !== 0) return;
@@ -47,6 +69,10 @@
     const press = pressed;
     pressed = null;
     const drag = home.dragging;
+    if (drag) {
+      justDragged = true;
+      setTimeout(() => (justDragged = false), 50);
+    }
 
     if (!drag) {
       if (press) home.select(press.disc.id);
@@ -101,9 +127,17 @@
   });
 </script>
 
-<svelte:window onpointermove={onPointerMove} onpointerup={onPointerUp} />
+<svelte:window onpointermove={onPointerMove} onpointerup={onPointerUp} onkeydown={onKeyDown} />
 
-<div class="ch-home" class:ch-dragging={!!home.dragging} class:ch-starting={home.phase !== "idle"}>
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+<div
+  class="ch-home"
+  class:ch-dragging={!!home.dragging}
+  class:ch-starting={home.phase !== "idle"}
+  class:ch-menu-open={home.menuOpen}
+  style:--ch-art-hue={artHue}
+  onclick={onScreenClick}
+>
   <!-- background art of the selected game -->
   <div class="ch-art">
     {#key art?.path}
@@ -122,6 +156,15 @@
   </div>
 
   <div class="ch-content">
+    {#if !home.menuOpen}
+      <div class="ch-idle">
+        {#if home.selected}
+          <div class="ch-idle-title">{home.selected.title}</div>
+        {/if}
+        <div class="ch-idle-hint">{$t("click_to_open")}</div>
+      </div>
+    {:else}
+    <div class="ch-menu">
     <!-- game row -->
     <section class="ch-games">
       <div class="ch-section-title">{$t("games")}</div>
@@ -139,17 +182,7 @@
               onpointerdown={(e) => onTilePointerDown(e, disc)}
               ondblclick={() => home.play(disc)}
             >
-              {#if disc.cover && !failedArt[disc.cover]}
-                <img
-                  class="ch-tile-cover"
-                  src={convertFileSrc(disc.cover)}
-                  alt=""
-                  draggable="false"
-                  onerror={() => disc.cover && (failedArt[disc.cover] = true)}
-                />
-              {:else}
-                <FileIcon class="ch-tile-icon" path={disc.iconPath} umid={disc.iconUmid} draggable="false" />
-              {/if}
+              <GameCover {disc} />
             </button>
           {/each}
         </div>
@@ -178,15 +211,21 @@
       </section>
     {/if}
 
-    <!-- bottom: library button, disc maker and console -->
+    </div>
+    {/if}
+
+    <!-- bottom: library button, disc maker and console (the console is always there) -->
     <section class="ch-bottom">
-      <button class="ch-library-button" onclick={() => home.openLibrary()}>
-        <span class="ch-library-icon">▤</span>
-        {$t("library")}
-      </button>
+      {#if home.menuOpen}
+        <button class="ch-library-button" onclick={() => home.openLibrary()}>
+          <span class="ch-library-icon">▤</span>
+          {$t("library")}
+        </button>
+      {/if}
 
       <div class="ch-spacer"></div>
 
+      {#if home.menuOpen}
       <div
         class="ch-maker"
         class:ch-drop-active={home.dropTarget === "maker"}
@@ -201,6 +240,7 @@
           </div>
         </div>
       </div>
+      {/if}
 
       <div
         class="ch-console"
@@ -218,7 +258,7 @@
         </div>
         <div class="ch-card-text">
           <div class="ch-card-title">{$t("console")}</div>
-          <div class="ch-card-hint">{$t("insert_here")}</div>
+          <div class="ch-card-hint">{home.menuOpen ? $t("insert_here") : $t("console_idle_hint")}</div>
         </div>
       </div>
     </section>

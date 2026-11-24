@@ -9,6 +9,7 @@ import { locale, t } from "./i18n/index.ts";
 
 export type LaunchSpec =
   | { type: "uri"; uri: string }
+  | { type: "exe"; path: string }
   | { type: "app"; path: string; umid: string | null; displayName: string }
   | { type: "file"; path: string };
 
@@ -72,6 +73,10 @@ const SOURCE_LABELS: Record<string, string> = {
   Epic: "Epic Games",
   Store: "Microsoft Store",
   Shortcut: "Game",
+  Gog: "GOG",
+  Ubisoft: "Ubisoft",
+  Itch: "itch.io",
+  Local: "Downloaded game",
 };
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
@@ -107,6 +112,7 @@ let burned = $state<Disc[]>(loadBurned());
 let selectedId = $state<string | null>(null);
 let phase = $state<Phase>("idle");
 let playing = $state<Disc | null>(null);
+let menuOpen = $state(false);
 let libraryOpen = $state(false);
 let openDrawer = $state<DrawerId>("desktop");
 let drawerEntries = $state<LibraryEntry[]>([]);
@@ -128,7 +134,8 @@ const gameDiscs = $derived(
       hero: game.hero ?? null,
       iconPath: game.executable ?? (game.source === "Shortcut" ? game.launch : null),
       iconUmid: game.umid ?? null,
-      launch: { type: "uri", uri: game.launch },
+      // downloaded games are started from their own folder, as many need it
+      launch: /\.exe$/i.test(game.launch) ? { type: "exe", path: game.launch } : { type: "uri", uri: game.launch },
       burned: false,
     }),
   ),
@@ -197,6 +204,7 @@ function showToast(text: string) {
 function sameLaunch(a: LaunchSpec, b: LaunchSpec): boolean {
   if (a.type !== b.type) return false;
   if (a.type === "uri" && b.type === "uri") return a.uri === b.uri;
+  if (a.type === "exe" && b.type === "exe") return a.path.toLowerCase() === b.path.toLowerCase();
   if (a.type === "app" && b.type === "app") {
     return (!!a.umid && a.umid === b.umid) || a.path.toLowerCase() === b.path.toLowerCase();
   }
@@ -208,6 +216,13 @@ function runLaunch(launch: LaunchSpec): Promise<unknown> {
   switch (launch.type) {
     case "uri":
       return invoke(SeelenCommand.OpenFile, { path: launch.uri });
+    case "exe":
+      return invoke(SeelenCommand.Run, {
+        program: launch.path,
+        args: null,
+        workingDir: launch.path.replace(/[\\/][^\\/]*$/, ""),
+        elevated: false,
+      });
     case "file":
       return invoke(SeelenCommand.OpenFile, { path: launch.path });
     case "app":
@@ -265,10 +280,13 @@ async function play(disc: Disc, withInsert = false) {
     playing = null;
     return;
   }
-  // the game opens on top of this window; keep the "starting" screen a moment, then reset
+  // the game opens on top of this window; keep the "starting" screen a moment, then go back to
+  // the idle screen
   await wait(5000);
   phase = "idle";
   playing = null;
+  menuOpen = false;
+  libraryOpen = false;
 }
 
 async function burn(entry: LibraryEntry) {
@@ -381,6 +399,9 @@ class ConsoleHomeState {
   get playing() {
     return playing;
   }
+  get menuOpen() {
+    return menuOpen;
+  }
   get libraryOpen() {
     return libraryOpen;
   }
@@ -404,13 +425,22 @@ class ConsoleHomeState {
   }
 
   select = (id: string) => (selectedId = id);
+  openMenu = () => (menuOpen = true);
+  closeMenu = () => {
+    menuOpen = false;
+    libraryOpen = false;
+  };
   play = play;
   burn = burn;
   removeDisc = removeDisc;
   openLibrary = openLibrary;
   closeLibrary = () => (libraryOpen = false);
   loadDrawer = loadDrawer;
-  openEntry = (entry: LibraryEntry) => runLaunch(entry.launch).catch(console.error);
+  openEntry = (entry: LibraryEntry) => {
+    runLaunch(entry.launch).catch(console.error);
+    menuOpen = false;
+    libraryOpen = false;
+  };
   startDrag = startDrag;
   moveDrag = moveDrag;
   endDrag = endDrag;
