@@ -226,7 +226,8 @@ impl Default for SeelenWegSettings {
             pinned_items_visibility: WegPinnedItemsVisibility::Always,
             // a little bigger than the default, so the icons are easy to press
             size: 48,
-            margin: 8,
+            // no gap between the toolbar, the dock and its tab
+            margin: 0,
             padding: 8,
             space_between_items: 8,
             delay_to_show: 100,

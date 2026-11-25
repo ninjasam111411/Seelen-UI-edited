@@ -30,6 +30,7 @@ pub fn migrate_settings() {
     migrate_dock();
     migrate_dock_full_width();
     migrate_dock_tab();
+    migrate_dock_no_gaps();
 }
 
 fn migrate_toolbar() {
@@ -106,6 +107,21 @@ fn migrate_dock_tab() {
         weg.mode = SeelenWegMode::MinContent;
         weg.margin = 8;
         weg.size = weg.size.max(48);
+        state
+    });
+    FULL_STATE.load().write_settings().log_error();
+    std::fs::write(&marker, b"done").log_error();
+}
+
+/// No space around the dock: it hangs right under the toolbar and its tab right under it.
+fn migrate_dock_no_gaps() {
+    let marker = SEELEN_COMMON.app_data_dir().join("edited-migrated-dock-no-gaps");
+    if marker.exists() {
+        return;
+    }
+    FULL_STATE.rcu(|state| {
+        let mut state = state.cloned();
+        state.settings.by_widget.weg.margin = 0;
         state
     });
     FULL_STATE.load().write_settings().log_error();

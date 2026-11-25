@@ -85,7 +85,7 @@ body {
   z-index: 10;
 
   &.top {
-    top: 100%;
+    top: calc(100% - 1px);
     left: 50%;
     translate: -50% 0;
   }
