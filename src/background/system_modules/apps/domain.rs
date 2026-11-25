@@ -93,3 +93,58 @@ pub enum UserAppWinEvent {
     Updated(isize),
     Removed(isize),
 }
+
+/// Where a maximized window has to go when it ignored the space reserved for the toolbar and the
+/// dock (some apps, e.g. Java games like Minecraft, maximize over the whole monitor): the work
+/// area, with the same invisible border overhang a normally maximized window has. `None` when
+/// the window already fits.
+pub fn fit_maximized_to_work_area(outer: &Rect, work: &Rect) -> Option<Rect> {
+    // a normally maximized window hangs over the work area by its (invisible) resize borders
+    let border = (work.left - outer.left).clamp(0, 16);
+    let tolerance = border + 2;
+    let overflows = outer.top < work.top - tolerance
+        || outer.bottom > work.bottom + tolerance
+        || outer.left < work.left - tolerance
+        || outer.right > work.right + tolerance;
+    overflows.then(|| Rect {
+        left: work.left - border,
+        top: work.top - border,
+        right: work.right + border,
+        bottom: work.bottom + border,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(left: i32, top: i32, right: i32, bottom: i32) -> Rect {
+        Rect {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
+    #[test]
+    fn moves_maximized_windows_out_from_under_the_bars() {
+        // work area below a 88px toolbar + dock
+        let work = rect(0, 88, 1920, 1080);
+        // a normally maximized window: 8px borders over the work area
+        assert_eq!(fit_maximized_to_work_area(&rect(-8, 80, 1928, 1088), &work), None);
+        // Minecraft maximized over the whole monitor
+        assert_eq!(
+            fit_maximized_to_work_area(&rect(-8, -8, 1928, 1088), &work),
+            Some(rect(-8, 80, 1928, 1088))
+        );
+        // borderless, over the whole monitor
+        assert_eq!(
+            fit_maximized_to_work_area(&rect(0, 0, 1920, 1080), &work),
+            Some(rect(0, 88, 1920, 1080))
+        );
+        // no reserved space: nothing to do
+        let full = rect(0, 0, 1920, 1080);
+        assert_eq!(fit_maximized_to_work_area(&rect(-8, -8, 1928, 1088), &full), None);
+    }
+}

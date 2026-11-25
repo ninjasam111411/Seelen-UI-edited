@@ -15,7 +15,9 @@ use crate::{
     utils::lock_free::{SyncVec, TracedMutex},
 };
 
-use super::domain::{AppsSysEvent, AppsSystem, UserAppWinEvent, WindowChange};
+use super::domain::{
+    AppsSysEvent, AppsSystem, UserAppWinEvent, WindowChange, fit_maximized_to_work_area,
+};
 
 #[cfg(windows)]
 type Platform = windows::WindowsApps;
@@ -106,6 +108,15 @@ impl UserAppsManager {
     }
 
     fn apply_change(&self, hwnd: isize, change: WindowChange) {
+        // done before taking the windows lock: it moves the window, which reports again
+        if let WindowChange::Placement {
+            is_zoomed: true,
+            is_fullscreen: false,
+            ..
+        } = change
+        {
+            fit_maximized(hwnd);
+        }
         let mut changed = false;
         // The foreground change clears the attention while holding this same lock, so the
         // attention checks below can not race with the window being activated.
@@ -271,4 +282,16 @@ fn now_millis() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// Moves a maximized window that ignored the space reserved for the toolbar and the dock (it
+/// would be partly under them, and cut at the bottom) into the work area of its monitor.
+fn fit_maximized(hwnd: isize) {
+    let window = Window::from(hwnd);
+    let (Ok(outer), Ok(work)) = (window.outer_rect(), window.monitor().work_area()) else {
+        return;
+    };
+    if let Some(rect) = fit_maximized_to_work_area(&outer, &work) {
+        window.set_rect(&rect).log_error();
+    }
 }
