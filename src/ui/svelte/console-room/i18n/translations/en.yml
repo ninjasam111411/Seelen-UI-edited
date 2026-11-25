@@ -43,4 +43,10 @@ hidden_count: "{{0}} hidden"
 hide_hidden: Hide hidden games
 save_failed: Couldn't save your changes
 cover_failed: Couldn't use that picture
-controller_hint: "Controller: A play · Y library · X favorite · View back to room"
+controller_hint: "Controller: A play · LB/RB games or media · Y library · X favorite · View back to room"
+media: Media
+app: App
+no_media: No media apps found. Open the Library, go to Apps and press "Add to Media" on any app.
+add_to_media: Add to Media
+added_to_media: "{{0}} added to Media"
+remove_from_media: Remove from Media

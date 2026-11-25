@@ -89,6 +89,58 @@ const SOURCE_LABELS: Record<string, string> = {
   Local: "Downloaded game",
 };
 
+/** apps the Media tab picks up by themselves (lower case letters and digits of their name) */
+const MEDIA_APP_NAMES = new Set([
+  "discord",
+  "googlechrome",
+  "chrome",
+  "microsoftedge",
+  "firefox",
+  "mozillafirefox",
+  "brave",
+  "opera",
+  "operagx",
+  "operagxbrowser",
+  "operabrowser",
+  "spotify",
+  "youtube",
+  "youtubemusic",
+  "netflix",
+  "disney",
+  "primevideo",
+  "amazonprimevideo",
+  "hulu",
+  "max",
+  "twitch",
+  "crunchyroll",
+  "plex",
+  "vlc",
+  "vlcmediaplayer",
+  "mediaplayer",
+  "windowsmediaplayer",
+  "applemusic",
+  "appletv",
+  "itunes",
+  "amazonmusic",
+  "tiktok",
+  "whatsapp",
+  "telegram",
+  "telegramdesktop",
+  "messenger",
+  "instagram",
+  "facebook",
+  "snapchat",
+  "reddit",
+  "obsstudio",
+  "medal",
+]);
+
+export type HomeTab = "games" | "media";
+
+function normalizeName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
 const settings = lazyRune(() => Settings.getAsync());
@@ -127,11 +179,14 @@ interface Customizations {
   covers: Record<string, string>;
   /** game id -> time it was last started (ms) */
   lastPlayed: Record<string, number>;
+  /** apps added to the Media tab by hand, as library entries */
+  media: LibraryEntry[];
 }
 
 let burned = $state<Disc[]>(loadBurned());
 let custom = $state<Customizations>(loadCustom());
 let showHidden = $state(false);
+let tab = $state<HomeTab>("games");
 let selectedId = $state<string | null>(null);
 let phase = $state<Phase>("idle");
 let playing = $state<Disc | null>(null);
@@ -168,9 +223,26 @@ const gameDiscs = $derived(
   ),
 );
 
+/** apps like Discord and Chrome from the start menu, and the ones added by hand */
+const mediaDiscs = $derived.by((): Disc[] => {
+  const seen = new Set<string>();
+  const found: Disc[] = [];
+  const add = (entry: LibraryEntry) => {
+    const key = normalizeName(entry.title);
+    if (seen.has(key)) return;
+    seen.add(key);
+    found.push({ ...entryToDisc(entry), id: `media:${entry.id}`, source: translate("app") });
+  };
+  for (const item of startMenuItems.value as StartMenuItem[]) {
+    if (MEDIA_APP_NAMES.has(normalizeName(item.display_name))) add(startMenuEntry(item));
+  }
+  custom.media.forEach(add);
+  return found;
+});
+
 /** every disc with the user's changes applied, hidden ones included */
 const everyDisc = $derived(
-  [...gameDiscs, ...burned].map((d): Disc => ({
+  [...(tab === "media" ? mediaDiscs : [...gameDiscs, ...burned])].map((d): Disc => ({
     ...d,
     title: custom.names[d.id] ?? d.title,
     cover: custom.covers[d.id] ?? d.cover,
@@ -228,7 +300,7 @@ function loadBurned(): Disc[] {
 }
 
 function loadCustom(): Customizations {
-  const empty: Customizations = { favorites: [], hidden: [], names: {}, covers: {}, lastPlayed: {} };
+  const empty: Customizations = { favorites: [], hidden: [], names: {}, covers: {}, lastPlayed: {}, media: [] };
   try {
     const raw = localStorage.getItem(CUSTOM_STORAGE_KEY);
     return raw ? { ...empty, ...(JSON.parse(raw) as Partial<Customizations>) } : empty;
@@ -331,6 +403,21 @@ function runLaunch(launch: LaunchSpec): Promise<unknown> {
   }
 }
 
+function startMenuEntry(item: StartMenuItem): LibraryEntry {
+  return {
+    id: item.umid ?? item.path,
+    title: item.display_name,
+    iconPath: item.path || null,
+    iconUmid: item.umid ?? null,
+    launch: {
+      type: "app" as const,
+      path: item.path,
+      umid: item.umid ?? null,
+      displayName: item.display_name,
+    },
+  };
+}
+
 function entryToDisc(entry: LibraryEntry): Disc {
   return {
     id: entry.id,
@@ -410,18 +497,7 @@ async function loadDrawer(drawer: DrawerId) {
 
   if (drawer === "apps") {
     drawerEntries = (startMenuItems.value as StartMenuItem[])
-      .map((item) => ({
-        id: item.umid ?? item.path,
-        title: item.display_name,
-        iconPath: item.path || null,
-        iconUmid: item.umid ?? null,
-        launch: {
-          type: "app" as const,
-          path: item.path,
-          umid: item.umid ?? null,
-          displayName: item.display_name,
-        },
-      }))
+      .map(startMenuEntry)
       .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
     return;
   }
@@ -439,7 +515,8 @@ async function loadDrawer(drawer: DrawerId) {
 
 function openLibrary() {
   libraryOpen = true;
-  loadDrawer(openDrawer);
+  // from the Media tab it opens on the apps, where they can be added to it
+  loadDrawer(tab === "media" ? "apps" : openDrawer);
 }
 
 // ─── Drag & drop ──────────────────────────────────────────────────────────────
@@ -519,6 +596,33 @@ class ConsoleHomeState {
   get hiddenCount() {
     return hiddenCount;
   }
+  get tab() {
+    return tab;
+  }
+
+  setTab = (value: HomeTab) => {
+    if (tab === value) return;
+    tab = value;
+    selectedId = null;
+    sounds.select();
+  };
+  /** puts an app from the library on the Media tab */
+  addToMedia = (entry: LibraryEntry) => {
+    if (!custom.media.some((m) => m.id === entry.id)) {
+      custom.media = [...custom.media, $state.snapshot(entry) as LibraryEntry];
+      saveCustom();
+    }
+    showToast(translate("added_to_media", { 0: entry.title }));
+    sounds.select();
+  };
+  isInMedia = (entryId: string) => custom.media.some((m) => m.id === entryId);
+  /** whether a Media tab disc was added by hand (and so can be removed) */
+  isAddedMedia = (discId: string) => custom.media.some((m) => `media:${m.id}` === discId);
+  removeFromMedia = (discId: string) => {
+    custom.media = custom.media.filter((m) => `media:${m.id}` !== discId);
+    saveCustom();
+    sounds.select();
+  };
   get showHidden() {
     return showHidden;
   }

@@ -147,13 +147,43 @@ body {
 }
 
 .ch-header-tab {
+  position: relative;
+  padding: 4px 2px;
+  margin-right: 14px;
+  border: none;
+  font: inherit;
   font-size: 22px;
   font-weight: 600;
-  color: rgb(242 244 248 / 0.55);
+  color: rgb(242 244 248 / 0.5);
+  background: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+
+  &:hover {
+    color: rgb(242 244 248 / 0.85);
+  }
+
+  // the open tab is underlined, like a console's home screen
+  &::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -4px;
+    height: 3px;
+    border-radius: 2px;
+    background: #ffffff;
+    transform: scaleX(0);
+    transition: transform 0.2s ease;
+  }
 }
 
 .ch-header-tab-active {
   color: #ffffff;
+
+  &::after {
+    transform: scaleX(1);
+  }
 }
 
 .ch-header-count {

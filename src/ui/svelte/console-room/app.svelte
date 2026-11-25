@@ -117,6 +117,12 @@
       return;
     }
     switch (button) {
+      case "lb":
+        home.setTab("games");
+        break;
+      case "rb":
+        home.setTab("media");
+        break;
       case "left":
         home.selectBy(-1);
         break;
@@ -310,7 +316,20 @@
 
   <div class="ch-content">
     <header class="ch-header">
-      <span class="ch-header-tab ch-header-tab-active">{$t("games")}</span>
+      <button
+        class="ch-header-tab"
+        class:ch-header-tab-active={home.tab === "games"}
+        onclick={() => home.setTab("games")}
+      >
+        {$t("games")}
+      </button>
+      <button
+        class="ch-header-tab"
+        class:ch-header-tab-active={home.tab === "media"}
+        onclick={() => home.setTab("media")}
+      >
+        {$t("media")}
+      </button>
       <span class="ch-header-count">{home.discs.length}</span>
       {#if home.hiddenCount > 0}
         <button class="ch-header-chip" onclick={() => home.setShowHidden(!home.showHidden)}>
@@ -325,7 +344,7 @@
     <!-- game row -->
     <section class="ch-games">
       {#if home.discs.length === 0}
-        <div class="ch-empty">{$t("no_games")}</div>
+        <div class="ch-empty">{home.tab === "media" ? $t("no_media") : $t("no_games")}</div>
       {:else}
         <div class="ch-row" bind:this={row} onwheel={onRowWheel}>
           {#each home.discs as disc (disc.id)}
@@ -392,7 +411,7 @@
           <div class="ch-actions">
             <button class="ch-play" onclick={() => home.play(game)}>
               <svg class="ch-play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" /></svg>
-              {$t("play")}
+              {home.tab === "media" ? $t("open") : $t("play")}
             </button>
             {#if game.burned}
               <button class="ch-secondary" onclick={() => home.removeDisc(game.id)}>
@@ -496,6 +515,9 @@
           >
             <FileIcon class="ch-library-item-icon" path={entry.iconPath} umid={entry.iconUmid} />
             <span class="ch-library-item-name">{entry.title}</span>
+            {#if home.openDrawer === "apps" && !home.isInMedia(entry.id)}
+              <button class="ch-secondary" onclick={() => home.addToMedia(entry)}>{$t("add_to_media")}</button>
+            {/if}
             <button class="ch-secondary" onclick={() => home.burn(entry)}>{$t("make_disc")}</button>
             <button class="ch-small-play" onclick={() => home.openEntry(entry)}>{$t("open")}</button>
           </div>
@@ -558,6 +580,17 @@
         </button>
         <button class="ch-game-menu-item" onclick={() => menu && (menu.renaming = true)}>✎ {$t("rename")}</button>
         <button class="ch-game-menu-item" onclick={() => coverInput?.click()}>🖼 {$t("choose_cover")}</button>
+        {#if home.isAddedMedia(disc.id)}
+          <button
+            class="ch-game-menu-item"
+            onclick={() => {
+              home.removeFromMedia(disc.id);
+              menu = null;
+            }}
+          >
+            ✕ {$t("remove_from_media")}
+          </button>
+        {/if}
         {#if home.hasCustom(disc.id)}
           <button
             class="ch-game-menu-item"
