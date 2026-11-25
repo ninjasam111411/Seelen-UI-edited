@@ -379,8 +379,11 @@
     height 0.2s ease,
     background-color 0.2s ease;
 
+  // at the top it continues the toolbar's notch: same flat glass, no shadow or edge between them
   &.top {
     border-radius: 0 0 12px 12px;
+    background: oklch(from var(--slu-std-bg-color) l c h / 0.62);
+    box-shadow: 0 4px 10px rgb(0 0 0 / 0.18);
   }
   &.bottom {
     border-radius: 12px 12px 0 0;

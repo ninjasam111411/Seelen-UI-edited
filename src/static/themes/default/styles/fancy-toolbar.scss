@@ -68,6 +68,49 @@
   justify-self: center;
 }
 
+// on a top bar the center island is a notch hanging from the screen edge (flat top, rounded
+// bottom, curved outer corners), one shape with the dock's tab that hangs right under it
+// the notch touches the top of the screen and reaches the bottom of the toolbar's window
+.ft-bar.top {
+  margin-top: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  overflow: visible;
+}
+
+.ft-bar.top .ft-bar-center {
+  --notch-color: oklch(from var(--slu-std-bg-color) l c h / 0.62);
+  --notch-curve: 14px;
+  position: relative;
+  align-self: start;
+  height: calc(100% + var(--config-margin) * 2) !important;
+  padding: 0 18px !important;
+  border-radius: 0 0 16px 16px;
+  background: var(--notch-color);
+  box-shadow: none;
+  overflow: visible;
+
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    width: var(--notch-curve);
+    height: var(--notch-curve);
+    pointer-events: none;
+  }
+
+  &::before {
+    right: 100%;
+    background: radial-gradient(circle at 0 100%, transparent calc(var(--notch-curve) - 0.5px), var(--notch-color) var(--notch-curve));
+  }
+
+  &::after {
+    left: 100%;
+    background: radial-gradient(circle at 100% 100%, transparent calc(var(--notch-curve) - 0.5px), var(--notch-color) var(--notch-curve));
+  }
+}
+
 .ft-bar-right {
   justify-self: end;
   margin-right: 6px;
