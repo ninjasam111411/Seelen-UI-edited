@@ -61,6 +61,12 @@ impl ToolbarItemsManager {
                 atomic_write_file(&path, serde_yaml::to_string(&items)?.as_bytes())?;
                 atomic_write_file(&marker, b"done")?;
             }
+            let marker = path.with_file_name("edited-migrated-layout-3");
+            if !marker.exists() {
+                declutter(&mut items);
+                atomic_write_file(&path, serde_yaml::to_string(&items)?.as_bytes())?;
+                atomic_write_file(&marker, b"done")?;
+            }
             items
         } else {
             let mut items = initial_items();
@@ -83,7 +89,6 @@ fn initial_items() -> ToolbarState {
                 ..Default::default()
             })),
             ToolbarItem2::Plugin("@default/focused-app".into()),
-            ToolbarItem2::Plugin("@default/workspaces-dotted".into()),
         ],
         center: vec![
             ToolbarItem2::Plugin("@seelen/tb-calendar-popup".into()),
@@ -92,11 +97,7 @@ fn initial_items() -> ToolbarState {
         right: vec![
             ToolbarItem2::Plugin("@seelen/tb-quick-play".into()),
             ToolbarItem2::Plugin("@default/now-playing".into()),
-            ToolbarItem2::Plugin("@default/cpu-usage".into()),
-            ToolbarItem2::Plugin("@default/gpu-usage".into()),
-            ToolbarItem2::Plugin("@default/memory-usage".into()),
-            ToolbarItem2::Plugin("@default/disk-usage".into()),
-            ToolbarItem2::Plugin("@default/network-usage".into()),
+            ToolbarItem2::Plugin("@default/pc-stats".into()),
             ToolbarItem2::Plugin("@seelen/tb-system-tray".into()),
             ToolbarItem2::Plugin("@seelen/tb-keyboard-selector".into()),
             ToolbarItem2::Plugin("@seelen/tb-bluetooth-popup".into()),
@@ -163,6 +164,31 @@ fn add_edited_extras(items: &mut ToolbarState) {
             .position(|i| matches!(i, ToolbarItem2::Plugin(id) if id.to_string() == "@default/network-usage"))
             .unwrap_or(items.right.len());
         items.right.insert(at, ToolbarItem2::Plugin("@default/disk-usage".into()));
+    }
+}
+
+/// Fewer, shorter items: one CPU + memory readout instead of five usage items, and no workspace
+/// dots (the toolbar was too full to read).
+fn declutter(items: &mut ToolbarState) {
+    const REMOVED: [&str; 6] = [
+        "@default/cpu-usage",
+        "@default/gpu-usage",
+        "@default/memory-usage",
+        "@default/disk-usage",
+        "@default/network-usage",
+        "@default/workspaces-dotted",
+    ];
+    let first_stat = items.right.iter().position(|item| {
+        matches!(item, ToolbarItem2::Plugin(id) if REMOVED[..5].contains(&id.to_string().as_str()))
+    });
+    for side in [&mut items.left, &mut items.center, &mut items.right] {
+        side.retain(|item| {
+            !matches!(item, ToolbarItem2::Plugin(id) if REMOVED.contains(&id.to_string().as_str()))
+        });
+    }
+    if !has_plugin(items, "@default/pc-stats") {
+        let at = first_stat.unwrap_or(0).min(items.right.len());
+        items.right.insert(at, ToolbarItem2::Plugin("@default/pc-stats".into()));
     }
 }
 

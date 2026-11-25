@@ -1,0 +1,24 @@
+id: "@default/pc-stats"
+metadata:
+  displayName:
+    en: PC Usage
+icon: LuActivity
+target: "@seelen/fancy-toolbar"
+plugin:
+  scopes:
+    - Cpu
+    - Gpu
+    - Memory
+  # CPU and memory in one short readout; the details (with the GPU) are in the tooltip
+  template: |-
+    const cpu = cores.length ? cores.reduce((t, c) => t + c.usage, 0) / cores.length : 0;
+    const ram = memory.total ? (1 - memory.free / memory.total) * 100 : 0;
+    return [icon("LuCpu"), " " + cpu.toFixed(0) + "%  ", icon("FaMemory"), " " + ram.toFixed(0) + "%"];
+  tooltip: |-
+    const cpu = cores.length ? cores.reduce((t, c) => t + c.usage, 0) / cores.length : 0;
+    const ram = memory.total ? (1 - memory.free / memory.total) * 100 : 0;
+    const gpu = gpus.reduce((m, g) => Math.max(m, g.usage), 0);
+    const gb = (bytes) => (bytes / 1024 / 1024 / 1024).toFixed(1) + " GB";
+    return "CPU " + cpu.toFixed(0) + "%  ·  GPU " + gpu.toFixed(0) + "%  ·  Memory " + ram.toFixed(0) + "% (" + gb(memory.total - memory.free) + " of " + gb(memory.total) + ")";
+  style:
+    flexShrink: 0
