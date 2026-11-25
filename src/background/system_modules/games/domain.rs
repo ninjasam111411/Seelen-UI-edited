@@ -659,6 +659,24 @@ pub fn itch_search_match(html: &str, name: &str) -> Option<String> {
         })
 }
 
+/// The arguments a .bat script passes to `exe_name` (`start "" "Game.exe" -flag %*` gives
+/// `-flag`), when it runs it with some. Script variables (`%*`, `%1`...) are left out.
+pub fn bat_args_for(script: &str, exe_name: &str) -> Option<String> {
+    let exe_lower = exe_name.to_lowercase();
+    script.lines().find_map(|line| {
+        let lower = line.to_lowercase();
+        let at = lower.find(&exe_lower)?;
+        let mut rest = &line[at + exe_name.len()..];
+        rest = rest.strip_prefix('"').unwrap_or(rest);
+        let args: Vec<&str> = rest
+            .split_whitespace()
+            .filter(|arg| !arg.starts_with('%') && !arg.starts_with('>') && !arg.starts_with('&'))
+            .take_while(|arg| !arg.eq_ignore_ascii_case("&&") && *arg != "|")
+            .collect();
+        (!args.is_empty()).then(|| args.join(" "))
+    })
+}
+
 /// The search token DuckDuckGo puts in its result pages, needed by its image search.
 pub fn duckduckgo_token(html: &str) -> Option<String> {
     ["vqd=\"", "vqd='", "vqd="].iter().find_map(|start| {
@@ -1197,6 +1215,20 @@ mod tests {
                 "https://t.com/3"
             ]
         );
+    }
+
+    #[test]
+    fn reads_starter_scripts() {
+        assert_eq!(
+            bat_args_for("start \"\" \"PlayGTAV.exe\" -nobattleye %*", "PlayGTAV.exe").as_deref(),
+            Some("-nobattleye")
+        );
+        assert_eq!(
+            bat_args_for("@echo off\r\ncd /d %~dp0\r\nGame.exe -windowed -dx11\r\n", "game.exe").as_deref(),
+            Some("-windowed -dx11")
+        );
+        assert_eq!(bat_args_for("start \"\" \"PlayGTAV.exe\" %*", "PlayGTAV.exe"), None);
+        assert_eq!(bat_args_for("start Other.exe -x", "PlayGTAV.exe"), None);
     }
 
     #[test]

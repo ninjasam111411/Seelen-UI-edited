@@ -12,7 +12,7 @@ use seelen_core::system_state::{GamepadState, GameSource, InstalledGame};
 
 use super::domain::{
     GamesSystem, cemu_args, display_name_from, epic_catalog_art, epic_game, is_game_folder, is_known_game_name,
-    is_known_store_game, is_non_game_name, local_game, normalize_name, pick_game_exe, pick_steam_cover, pick_trusted_exe,
+    is_known_store_game, is_non_game_name, bat_args_for, local_game, normalize_name, pick_game_exe, pick_steam_cover, pick_trusted_exe,
     pick_folder_icon, pick_steam_hero, pick_steam_icon, pick_steam_logo, shortcut_game, steam_app_manifest, steam_game, steam_library_paths,
     store_game, ubisoft_game,
 };
@@ -131,9 +131,24 @@ impl GamesManager {
 
     /// Store games, known launchers and games downloaded from websites, from the start menu.
     fn scan_start_menu(&self) -> Vec<InstalledGame> {
+        // games kept in a games folder are started with their own program (found by the folder
+        // scan), never through a shortcut to them, which may start the wrong file
+        let game_roots: Vec<String> = self
+            .platform
+            .game_folders()
+            .iter()
+            .map(|root| root.to_string_lossy().to_lowercase())
+            .collect();
+        let in_games_folder = |target: &Path| {
+            let target = target.to_string_lossy().to_lowercase();
+            game_roots
+                .iter()
+                .any(|root| target.starts_with(&format!("{}\\", root.trim_end_matches('\\'))))
+        };
         StartMenuManager::instance()
             .get_all()
             .iter()
+            .filter(|item| !item.target.as_deref().is_some_and(in_games_folder))
             .filter_map(|item| match (&item.target, &item.umid) {
                 (None, Some(umid)) => {
                     let is_game = is_known_store_game(umid)
@@ -228,6 +243,9 @@ fn scan_game_folders(root: &Path, source: GameSource) -> Vec<InstalledGame> {
         let name = display_name_from(&child.file_name().to_string_lossy());
         if let Some(mut game) = folder_game(&dir, &name, source) {
             game.icon = find_folder_icon(&dir, game.executable.as_deref());
+            if game.launch_args.is_none() {
+                game.launch_args = game.executable.as_deref().and_then(find_bat_args);
+            }
             games.push(game);
         }
     }
@@ -288,6 +306,25 @@ fn find_trusted_exe(dir: &Path, folder_name: &str) -> Option<PathBuf> {
         .collect();
     let exe_lower = pick_trusted_exe(folder_name, &files)?;
     real_file(dir, &exe_lower)
+}
+
+/// Arguments the game's own .bat starter gives its program (e.g. `PlayGTAV.bat` runs
+/// `PlayGTAV.exe -nobattleye`): starting the program without them can fail.
+fn find_bat_args(exe: &Path) -> Option<String> {
+    let dir = exe.parent()?;
+    let exe_name = exe.file_name()?.to_string_lossy().to_string();
+    std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .take(MAX_FOLDER_ENTRIES)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("bat") || ext.eq_ignore_ascii_case("cmd"))
+        })
+        // a starter is a short script; bigger ones are installers or tools
+        .filter(|p| std::fs::metadata(p).is_ok_and(|m| m.len() < 4096))
+        .find_map(|bat| bat_args_for(&std::fs::read_to_string(bat).ok()?, &exe_name))
 }
 
 /// An icon the game ships (e.g. `game.ico`): in its folder, or next to its program.
