@@ -20,19 +20,22 @@ use serde::{Deserialize, Serialize};
 use crate::{
     get_tokio_handle,
     system_modules::games::domain::{
-        base_game_name, steam_art_urls, steam_icon_url, steam_search_match,
-        wikipedia_cover_match,
+        EpicArt, base_game_name, itch_search_match, steam_art_urls, steam_icon_url,
+        steam_search_match, steam_search_similar, wikipedia_cover_match,
     },
     utils::{constants::SEELEN_COMMON, lock_free::TracedMutex},
 };
 
 const RETRY_AFTER_SECS: u64 = 24 * 60 * 60;
 /// Bumped when new kinds of art are looked up, so games checked before get them too.
-const ART_VERSION: u32 = 3;
+const ART_VERSION: u32 = 4;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 static INDEX: LazyLock<TracedMutex<HashMap<String, ArtEntry>>> =
     LazyLock::new(|| TracedMutex::new(load_index()));
+/// Art urls a launcher knows for its games (e.g. the Epic catalog), by game id.
+static HINTS: LazyLock<TracedMutex<HashMap<String, EpicArt>>> =
+    LazyLock::new(|| TracedMutex::new(HashMap::new()));
 static PENDING: LazyLock<TracedMutex<HashSet<String>>> =
     LazyLock::new(|| TracedMutex::new(HashSet::new()));
 static HTTP: LazyLock<reqwest::Client> = LazyLock::new(|| {
@@ -55,6 +58,11 @@ struct ArtEntry {
     checked_at: u64,
     #[serde(default)]
     version: u32,
+}
+
+/// Remembers art urls a launcher gave for a game, tried before searching for it.
+pub fn hint(game_id: &str, art: EpicArt) {
+    HINTS.lock().insert(game_id.to_owned(), art);
 }
 
 /// Fills in the cover/hero of games without one, from art found earlier.
@@ -138,6 +146,21 @@ async fn find_art(game: &InstalledGame, previous: ArtEntry) -> ArtEntry {
         return entry;
     }
 
+    // art the game's own launcher knows comes first
+    let hints = HINTS.lock().get(&game.id).cloned().unwrap_or_default();
+    if need_cover && !hints.cover.is_empty() {
+        entry.cover = download_first(&hints.cover, &path("cover", "jpg")).await;
+    }
+    if need_hero && !hints.hero.is_empty() {
+        entry.hero = download_first(&hints.hero, &path("hero", "jpg")).await;
+    }
+    if need_logo && !hints.logo.is_empty() {
+        entry.logo = download_first(&hints.logo, &path("logo", "png")).await;
+    }
+    let need_cover = need_cover && entry.cover.is_none();
+    let need_hero = need_hero && entry.hero.is_none();
+    let need_logo = need_logo && entry.logo.is_none();
+
     let appid = match game.source {
         GameSource::Steam => game.id.strip_prefix("steam:").map(str::to_owned),
         _ => search_steam(&game.name).await,
@@ -164,17 +187,39 @@ async fn find_art(game: &InstalledGame, previous: ArtEntry) -> ArtEntry {
             entry.cover = download_first(&[url], &path("cover", "jpg")).await;
         }
     }
+    // small games downloaded from websites are often only on itch.io
+    if need_cover && entry.cover.is_none() && game.source != GameSource::Steam {
+        if let Some(url) = search_itch(&game.name).await {
+            entry.cover = download_first(&[url], &path("cover", "png")).await;
+        }
+    }
     entry
 }
 
-/// Searches Steam by the game's name, then by its name without edition words.
+/// Searches Steam by the game's name, then by its name without edition words: a result with the
+/// same name wins, else one with a similar name.
 async fn search_steam(name: &str) -> Option<String> {
+    let mut similar = None;
     for term in search_terms(name) {
         let url = format!(
             "https://store.steampowered.com/api/storesearch/?term={}&l=english&cc=US",
             urlencoding::encode(&term)
         );
-        if let Some(found) = get_text(&url).await.and_then(|b| steam_search_match(&b, name)) {
+        let Some(body) = get_text(&url).await else {
+            continue;
+        };
+        if let Some(found) = steam_search_match(&body, name) {
+            return Some(found);
+        }
+        similar = similar.or_else(|| steam_search_similar(&body, name));
+    }
+    similar
+}
+
+async fn search_itch(name: &str) -> Option<String> {
+    for term in search_terms(name) {
+        let url = format!("https://itch.io/search?q={}", urlencoding::encode(&term));
+        if let Some(found) = get_text(&url).await.and_then(|b| itch_search_match(&b, name)) {
             return Some(found);
         }
     }

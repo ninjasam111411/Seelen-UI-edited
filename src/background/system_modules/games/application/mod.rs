@@ -11,8 +11,8 @@ use std::{
 use seelen_core::system_state::{GameSource, InstalledGame};
 
 use super::domain::{
-    GamesSystem, cemu_args, display_name_from, epic_game, is_game_folder, is_known_game_name,
-    is_known_store_game, is_non_game_name, local_game, pick_game_exe, pick_steam_cover, pick_trusted_exe,
+    GamesSystem, cemu_args, display_name_from, epic_catalog_art, epic_game, is_game_folder, is_known_game_name,
+    is_known_store_game, is_non_game_name, local_game, normalize_name, pick_game_exe, pick_steam_cover, pick_trusted_exe,
     pick_folder_icon, pick_steam_hero, pick_steam_icon, pick_steam_logo, shortcut_game, steam_app_manifest, steam_game, steam_library_paths,
     store_game, ubisoft_game,
 };
@@ -62,19 +62,32 @@ impl GamesManager {
             games.extend(scan_game_folders(&folder, GameSource::Local));
         }
 
-        // the same game can come from several sources (e.g. a launcher shortcut and the store)
-        let mut seen_ids = HashSet::new();
-        let mut seen_names = HashSet::new();
-        games.retain(|game| {
-            seen_ids.insert(game.id.clone()) && seen_names.insert(game.name.to_lowercase())
-        });
-        games.retain(|game| !is_non_game_name(&game.name));
-        games.sort_by_key(|game| game.name.to_lowercase());
-
         // cover art found online for games without it on disk (filled in the background)
         art::apply(&mut games);
-        art::request(&games);
-        games
+
+        // the same game can come from several sources (e.g. a launcher shortcut and the store):
+        // the first one is kept, with the art the others have and it lacks
+        let mut unique: Vec<InstalledGame> = Vec::with_capacity(games.len());
+        let mut seen_ids = HashSet::new();
+        for game in games {
+            if is_non_game_name(&game.name) || !seen_ids.insert(game.id.clone()) {
+                continue;
+            }
+            let key = normalize_name(&game.name);
+            match unique.iter_mut().find(|kept| normalize_name(&kept.name) == key) {
+                Some(kept) => {
+                    kept.cover = kept.cover.take().or(game.cover);
+                    kept.hero = kept.hero.take().or(game.hero);
+                    kept.logo = kept.logo.take().or(game.logo);
+                    kept.icon = kept.icon.take().or(game.icon);
+                }
+                None => unique.push(game),
+            }
+        }
+        unique.sort_by_key(|game| game.name.to_lowercase());
+
+        art::request(&unique);
+        unique
     }
 }
 
@@ -364,14 +377,37 @@ fn scan_epic(dir: &Path) -> Vec<InstalledGame> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
-    entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("item"))
+    // the launcher keeps the store art of its games in a catalog cache next to the manifests
+    let catalog = dir
+        .parent()
+        .map(|data| data.join("Catalog").join("catcache.bin"))
+        .and_then(|path| std::fs::read(path).ok())
+        .and_then(|bytes| {
+            use base64::Engine as _;
+            let text: Vec<u8> = bytes.into_iter().filter(|b| !b.is_ascii_whitespace()).collect();
+            base64::engine::general_purpose::STANDARD.decode(text).ok()
         })
-        .filter_map(|path| std::fs::read_to_string(path).ok())
-        .filter_map(|json| epic_game(&json))
-        .collect()
+        .map(|json| epic_catalog_art(&String::from_utf8_lossy(&json)))
+        .unwrap_or_default();
+
+    let mut games = Vec::new();
+    for path in entries.flatten().map(|entry| entry.path()) {
+        if !path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("item")) {
+            continue;
+        }
+        let Ok(json) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Some(game) = epic_game(&json) else {
+            continue;
+        };
+        let item_id = serde_json::from_str::<serde_json::Value>(&json)
+            .ok()
+            .and_then(|v| v.get("CatalogItemId")?.as_str().map(str::to_owned));
+        if let Some(art) = item_id.and_then(|id| catalog.get(&id)) {
+            art::hint(&game.id, art.clone());
+        }
+        games.push(game);
+    }
+    games
 }

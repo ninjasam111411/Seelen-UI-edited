@@ -540,6 +540,127 @@ pub fn steam_search_match(search_json: &str, name: &str) -> Option<String> {
         .and_then(id_of)
 }
 
+/// Lower case words of a name without its edition words.
+fn name_words(name: &str) -> Vec<String> {
+    base_game_name(name)
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Whether two game names are close enough to be the same game: most of their words are shared,
+/// or every word of a name of 2+ words is in the other ("Meccha Chameleon" ~ "MECCHA CHAMELEON!").
+pub fn similar_game_names(a: &str, b: &str) -> bool {
+    let (wa, wb) = (name_words(a), name_words(b));
+    if wa.is_empty() || wb.is_empty() {
+        return false;
+    }
+    if normalize_name(&wa.concat()) == normalize_name(&wb.concat()) {
+        return true;
+    }
+    let shared = wa.iter().filter(|w| wb.contains(w)).count();
+    let all = wa.len() + wb.len() - shared;
+    let contained = |x: &[String], y: &[String]| x.len() >= 2 && x.iter().all(|w| y.contains(w));
+    shared * 10 >= all * 7 || contained(&wa, &wb) || contained(&wb, &wa)
+}
+
+/// Like [`steam_search_match`], also accepting a result with a similar name.
+pub fn steam_search_similar(search_json: &str, name: &str) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_str(search_json).ok()?;
+    json.get("items")?.as_array()?.iter().find_map(|item| {
+        let item_name = item.get("name")?.as_str()?;
+        if !similar_game_names(item_name, name) {
+            return None;
+        }
+        match item.get("id")? {
+            serde_json::Value::Number(n) => Some(n.to_string()),
+            serde_json::Value::String(s) => Some(s.clone()),
+            _ => None,
+        }
+    })
+}
+
+/// Cover art urls the Epic Games launcher keeps for its catalog items, by catalog item id.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EpicArt {
+    pub cover: Vec<String>,
+    pub hero: Vec<String>,
+    pub logo: Vec<String>,
+}
+
+/// Reads the launcher's catalog cache (`catcache.bin`, already base64 decoded: a JSON list).
+pub fn epic_catalog_art(catalog_json: &str) -> std::collections::HashMap<String, EpicArt> {
+    let mut art = std::collections::HashMap::new();
+    let Ok(serde_json::Value::Array(items)) = serde_json::from_str::<serde_json::Value>(catalog_json)
+    else {
+        return art;
+    };
+    for item in items {
+        let Some(id) = item.get("id").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let images: Vec<(String, String)> = item
+            .get("keyImages")
+            .and_then(|v| v.as_array())
+            .map(|list| {
+                list.iter()
+                    .filter_map(|img| {
+                        Some((
+                            img.get("type")?.as_str()?.to_owned(),
+                            img.get("url")?.as_str()?.to_owned(),
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let of = |kinds: &[&str]| -> Vec<String> {
+            kinds
+                .iter()
+                .flat_map(|k| images.iter().filter(move |(t, _)| t == k).map(|(_, u)| u.clone()))
+                .collect()
+        };
+        let entry = EpicArt {
+            cover: of(&["DieselGameBoxTall", "OfferImageTall", "Thumbnail"]),
+            hero: of(&["DieselGameBox", "OfferImageWide", "DieselStoreFrontWide"]),
+            logo: of(&["DieselGameBoxLogo"]),
+        };
+        if entry != EpicArt::default() {
+            art.insert(id.to_owned(), entry);
+        }
+    }
+    art
+}
+
+/// Cover image url and title of the first matching game in an itch.io search results page.
+pub fn itch_search_match(html: &str, name: &str) -> Option<String> {
+    html.split("class=\"game_cell ")
+        .skip(1)
+        .take(10)
+        .find_map(|cell| {
+            let title = cell
+                .split("class=\"title game_link\"")
+                .nth(1)?
+                .split_once('>')?
+                .1
+                .split_once('<')?
+                .0;
+            if !similar_game_names(&html_unescape(title), name) {
+                return None;
+            }
+            let image = cell.split("data-lazy_src=\"").nth(1)?.split_once('"')?.0;
+            image.starts_with("https://").then(|| image.to_owned())
+        })
+}
+
+fn html_unescape(text: &str) -> String {
+    text.replace("&amp;", "&")
+        .replace("&#039;", "'")
+        .replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+}
+
 /// Public Steam store image urls of an app: `(cover candidates, hero candidates, logo candidates)`.
 pub fn steam_art_urls(appid: &str) -> (Vec<String>, Vec<String>, Vec<String>) {
     let bases = [
@@ -952,6 +1073,44 @@ mod tests {
             {"name":"Grand Theft Auto V Legacy","id":271590}]}"#;
         assert_eq!(steam_search_match(json, "Grand Theft Auto V Legacy").as_deref(), Some("271590"));
         assert_eq!(steam_search_match(json, "Grand Theft Auto"), None);
+    }
+
+    #[test]
+    fn similar_names() {
+        assert!(similar_game_names("MECCHA CHAMELEON", "Meccha Chameleon"));
+        assert!(similar_game_names("Meccha Chameleon", "MECCHA CHAMELEON!"));
+        assert!(similar_game_names("Backrooms Escape Together", "Escape the Backrooms Together"));
+        assert!(!similar_game_names("Minecraft", "Minecraft Dungeons"));
+        assert!(!similar_game_names("Grand Theft Auto V", "Grand Theft Auto IV"));
+        let json = r#"{"items":[{"name":"Minecraft Dungeons","id":1},{"name":"MECCHA CHAMELEON!","id":2}]}"#;
+        assert_eq!(steam_search_similar(json, "Meccha Chameleon").as_deref(), Some("2"));
+        assert_eq!(steam_search_similar(json, "Minecraft"), None);
+    }
+
+    #[test]
+    fn reads_epic_catalog_art() {
+        let json = r#"[{"id":"4fe75bbc5a674f4f9b356b5c90567da5","title":"Fortnite","keyImages":[
+            {"type":"DieselGameBox","url":"https://cdn1.epicgames.com/wide.jpg"},
+            {"type":"DieselGameBoxTall","url":"https://cdn1.epicgames.com/tall.jpg"},
+            {"type":"DieselGameBoxLogo","url":"https://cdn1.epicgames.com/logo.png"}]},
+            {"id":"x","keyImages":[]}]"#;
+        let art = epic_catalog_art(json);
+        assert_eq!(art.len(), 1);
+        let fortnite = &art["4fe75bbc5a674f4f9b356b5c90567da5"];
+        assert_eq!(fortnite.cover, vec!["https://cdn1.epicgames.com/tall.jpg"]);
+        assert_eq!(fortnite.hero, vec!["https://cdn1.epicgames.com/wide.jpg"]);
+        assert_eq!(fortnite.logo, vec!["https://cdn1.epicgames.com/logo.png"]);
+    }
+
+    #[test]
+    fn reads_itch_search_results() {
+        let html = r#"<div class="game_cell has_cover lazy_images" data-game_id="1"><a class="thumb_link game_link"><div class="game_thumb"><img data-lazy_src="https://img.itch.zone/other.png"/></div></a><div class="game_cell_data"><div class="game_title"><a class="title game_link" href="x">Other Thing</a></div></div></div>
+<div class="game_cell has_cover lazy_images" data-game_id="2"><a class="thumb_link game_link"><div class="game_thumb"><img data-lazy_src="https://img.itch.zone/meccha.png"/></div></a><div class="game_cell_data"><div class="game_title"><a class="title game_link" href="y">MECCHA CHAMELEON</a></div></div></div>"#;
+        assert_eq!(
+            itch_search_match(html, "Meccha Chameleon").as_deref(),
+            Some("https://img.itch.zone/meccha.png")
+        );
+        assert_eq!(itch_search_match(html, "Nothing Here"), None);
     }
 
     #[test]
