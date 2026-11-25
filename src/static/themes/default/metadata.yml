@@ -26,6 +26,7 @@ styles:
   "@seelen/user-menu": !include styles/user-menu.scss
   "@seelen/network-popup": !include styles/network-popup.scss
   "@seelen/calendar-popup": !include styles/calendar-popup.scss
+  "@seelen/weather-popup": !include styles/weather-popup.scss
   "@seelen/media-popup": !include styles/media-popup.scss
   "@seelen/notifications": !include styles/notifications.scss
   "@seelen/context-menu": !include styles/context-menu.scss

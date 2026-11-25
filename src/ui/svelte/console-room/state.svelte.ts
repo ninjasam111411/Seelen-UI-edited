@@ -170,6 +170,13 @@ $effect.root(() => {
   });
 });
 
+// the toolbar's Quick Play button: starts the first game of the shelf (favorites first, then the
+// most recently played)
+Widget.self.onTrigger(() => {
+  const game = shelfGames[0];
+  if (game) play(game);
+});
+
 // newly installed games (and apps put in a Media folder) show up without restarting
 setInterval(async () => {
   try {

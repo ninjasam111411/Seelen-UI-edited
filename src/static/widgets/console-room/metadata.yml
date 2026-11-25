@@ -6,3 +6,5 @@ metadata:
 instances: Single
 loader: Internal
 preset: Desktop
+plugins:
+  - !extend ./toolbar-plugin.yml

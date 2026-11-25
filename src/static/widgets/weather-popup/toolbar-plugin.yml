@@ -1,0 +1,18 @@
+id: "@seelen/tb-weather"
+metadata:
+  displayName: !extend i18n/display_name.yml
+  description: !extend i18n/description.yml
+icon: LuCloudSun
+target: "@seelen/fancy-toolbar"
+plugin:
+  scopes:
+    - Weather
+  # mornings show the day's high, the rest of the day the temperature now and the sky
+  template: |-
+    if (!weather) return "";
+    if (weather.isMorning && weather.high !== null) {
+      return [icon(weather.highIcon), " High ", weather.high + "°"];
+    }
+    return [icon(weather.icon), " ", weather.temp + "° ", weather.condition];
+  onClickV2: |-
+    trigger("@seelen/weather-popup");

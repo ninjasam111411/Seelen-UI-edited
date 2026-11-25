@@ -1,0 +1,169 @@
+.weather-popup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-m);
+  width: 360px;
+  user-select: none;
+}
+
+.wp-now {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-l);
+}
+
+.wp-now-main {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.wp-now-icon {
+  font-size: 44px;
+}
+
+.wp-now-temp {
+  font-size: 52px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.wp-now-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wp-place {
+  font-weight: 600;
+}
+
+.wp-condition {
+  font-size: 15px;
+}
+
+.wp-muted {
+  color: var(--slu-std-fg-muted-color);
+  font-size: 13px;
+}
+
+.wp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2xs);
+}
+
+.wp-chip {
+  padding: 3px 10px;
+  border-radius: var(--radius-full, 999px);
+  font-size: 12px;
+  background: var(--slu-std-ui-hover-overlay);
+}
+
+.wp-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.wp-section-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--slu-std-fg-muted-color);
+}
+
+.wp-hours {
+  display: flex;
+  gap: var(--spacing-xs);
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.wp-hour {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 42px;
+  padding: 6px 2px;
+  border-radius: var(--radius-m);
+  background: var(--slu-std-ui-hover-overlay);
+}
+
+.wp-hour-icon {
+  font-size: 18px;
+}
+
+.wp-hour-temp {
+  font-weight: 600;
+}
+
+.wp-rain {
+  font-size: 11px;
+  color: var(--color-blue-400);
+}
+
+.wp-days {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wp-day {
+  display: grid;
+  grid-template-columns: 52px 22px 34px 32px 1fr 32px;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 4px 6px;
+  border-radius: var(--radius-m);
+
+  &:hover {
+    background: var(--slu-std-ui-hover-overlay);
+  }
+}
+
+.wp-day-name {
+  font-weight: 600;
+}
+
+.wp-day-icon {
+  font-size: 18px;
+}
+
+.wp-day-low {
+  text-align: right;
+  color: var(--slu-std-fg-muted-color);
+}
+
+.wp-day-high {
+  font-weight: 600;
+}
+
+// the day's low-to-high range on the week's scale: cooler blue to warmer orange
+.wp-day-track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--slu-std-ui-hover-overlay);
+}
+
+.wp-day-bar {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--color-blue-400), var(--color-orange-400, #fb923c));
+}
+
+.wp-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-s);
+  padding: var(--spacing-l);
+  text-align: center;
+}

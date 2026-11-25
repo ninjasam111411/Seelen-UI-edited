@@ -1,0 +1,13 @@
+id: "@seelen/tb-quick-play"
+metadata:
+  displayName:
+    en: Quick Play
+  description:
+    en: Starts your favorite game (or the one you played last) with one click.
+icon: PiGameControllerDuotone
+target: "@seelen/fancy-toolbar"
+plugin:
+  template: 'return [icon("PiGameControllerDuotone"), " Play"]'
+  tooltip: 'return "Play your favorite game"'
+  onClickV2: |-
+    trigger("@seelen/console-room");

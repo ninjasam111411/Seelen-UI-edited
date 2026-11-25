@@ -1,0 +1,20 @@
+id: "@default/now-playing"
+metadata:
+  displayName:
+    en: Now Playing
+icon: LuMusic
+target: "@seelen/fancy-toolbar"
+plugin:
+  scopes:
+    - Media
+  # the song (or video) playing now, shortened; nothing when nothing plays
+  template: |-
+    if (!mediaSession || !mediaSession.title) return "";
+    const text = mediaSession.author ? mediaSession.title + " · " + mediaSession.author : mediaSession.title;
+    const short = text.length > 38 ? text.slice(0, 37) + "…" : text;
+    return [icon(mediaSession.playing ? "LuMusic" : "LuPause"), " ", short];
+  tooltip: 'return mediaSession ? [mediaSession.title, mediaSession.author ? " · " + mediaSession.author : ""] : ""'
+  onClickV2: |-
+    trigger("@seelen/media-popup");
+  style:
+    flexShrink: 1

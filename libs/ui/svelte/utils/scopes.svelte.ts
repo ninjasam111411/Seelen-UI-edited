@@ -4,6 +4,7 @@ import { type AllSeelenCommandReturns, invoke, SeelenCommand, SeelenEvent, subsc
 import { NotificationsMode } from "@seelen-ui/lib/types";
 import { dateState } from "../runes/date.svelte.ts";
 import { dedupeBluetoothDevices, getIconNameForBTDevice } from "./bluetoothIcons.ts";
+import { describeWeather, weather } from "./weather.svelte.ts";
 
 class LazyScope<C extends SeelenCommand> {
   private _ready = $state.raw(false);
@@ -146,6 +147,10 @@ export function resolveScopes(scopes: string[], { userSourceName }: ScopeMofidie
 
   if (scopesSet.has("focusedapp")) {
     fetching ||= focusedAppStep(data);
+  }
+
+  if (scopesSet.has("weather")) {
+    fetching ||= weatherStep(data);
   }
 
   if (scopesSet.has("workspaces")) {
@@ -334,6 +339,32 @@ function powerStep(data: Data): boolean {
   data.powerMode = _powerMode.data;
   data.batteries = _batteries.data;
 
+  return false;
+}
+
+/**
+ * `weather`: `{ temp, condition, icon, high, low, isMorning, place }` (°F, rounded), or null while
+ * it can't be loaded. Mornings (before noon) are for the day's high.
+ */
+function weatherStep(data: Data): boolean {
+  weather.init();
+  const w = weather.data;
+  if (!w) {
+    data.weather = null;
+    return !weather.ready;
+  }
+  const today = w.days[0];
+  const look = describeWeather(w.now.code, w.now.isDay);
+  data.weather = {
+    temp: Math.round(w.now.temperature),
+    condition: look.label,
+    icon: look.icon,
+    high: today ? Math.round(today.high) : null,
+    low: today ? Math.round(today.low) : null,
+    highIcon: today ? describeWeather(today.code, true).icon : look.icon,
+    isMorning: new Date(dateState.date).getHours() < 12,
+    place: w.place,
+  };
   return false;
 }
 

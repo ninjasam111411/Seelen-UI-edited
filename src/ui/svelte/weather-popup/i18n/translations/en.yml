@@ -1,0 +1,16 @@
+title: Weather
+now: Now
+feels_like: "Feels like {{0}}°"
+high_low: "H {{0}}°  L {{1}}°"
+wind: "Wind {{0}} mph"
+humidity: "Humidity {{0}}%"
+next_hours: Next hours
+this_week: This week
+today: Today
+rain_chance: "{{0}}% rain"
+sunrise: Sunrise
+sunset: Sunset
+loading: Getting the weather…
+failed: Couldn't get the weather. Check your internet connection.
+retry: Try again
+updated: "Updated {{0}}"
