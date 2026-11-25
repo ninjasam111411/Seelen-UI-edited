@@ -18,13 +18,21 @@ concurrency:
 jobs:
   build:
     runs-on: windows-2025
+    env:
+      # Faster builds of this personal edition: the official release profile (fat LTO, one
+      # codegen unit, debug info) makes every build take ~20 min for a few % of size/speed.
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: "2"
+      CARGO_PROFILE_RELEASE_DEBUG: "false"
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v4
 
       - uses: ./.github/actions/setup
         with:
           rust-targets: x86_64-pc-windows-msvc
-          cache-key-prefix: rust-edited-installer
+          cache-key-prefix: rust-edited-fast
 
       - name: Install frontend dependencies
         run: npm install
