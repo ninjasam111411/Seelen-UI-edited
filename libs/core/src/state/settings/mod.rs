@@ -216,7 +216,8 @@ impl Default for SeelenWegSettings {
         Self {
             enabled: true,
             shortcuts: None,
-            mode: SeelenWegMode::MinContent,
+            // spans its whole reserved strip like a taskbar, so no wallpaper shows beside it
+            mode: SeelenWegMode::FullWidth,
             // always shown in its own reserved strip, like the top bar: windows stay clear of it
             hide_mode: HideMode::Never,
             position: SeelenWegSide::Bottom,

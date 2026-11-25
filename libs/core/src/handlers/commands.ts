@@ -126,6 +126,7 @@ export enum SeelenCommand {
   WegLaunchItem = "weg_launch_item",
   GetInstalledGames = "get_installed_games",
   GetGamepadState = "get_gamepad_state",
+  GetMediaFolderItems = "get_media_folder_items",
   WmGetRenderTree = "wm_get_render_tree",
   SetAppWindowsPositions = "set_app_windows_positions",
   WmSetStackActiveWindow = "wm_set_stack_active_window",

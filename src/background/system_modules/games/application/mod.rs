@@ -92,6 +92,33 @@ impl GamesManager {
 }
 
 impl GamesManager {
+    /// What to open for each item in a Media folder: shortcuts and programs as they are, and for
+    /// a folder, the program in it.
+    pub fn media_folder_items(&self) -> Vec<PathBuf> {
+        let mut items = Vec::new();
+        for root in self.platform.media_folders() {
+            let Ok(children) = std::fs::read_dir(&root) else {
+                continue;
+            };
+            for child in children.flatten().take(MAX_FOLDER_ENTRIES) {
+                let path = child.path();
+                if path.is_dir() {
+                    let name = child.file_name().to_string_lossy().to_string();
+                    if let Some(exe) = find_trusted_exe(&path, &name) {
+                        items.push(exe);
+                    }
+                } else if path.extension().is_some_and(|ext| {
+                    ["lnk", "url", "exe", "appref-ms"]
+                        .iter()
+                        .any(|e| ext.eq_ignore_ascii_case(e))
+                }) {
+                    items.push(path);
+                }
+            }
+        }
+        items
+    }
+
     /// `None` while another app is in front; buttons are empty when no Xbox controller is
     /// connected (other controllers are read by the webview).
     pub fn gamepad_state(&self) -> Option<GamepadState> {

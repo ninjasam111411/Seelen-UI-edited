@@ -122,6 +122,9 @@ pub trait GamesSystem: Sized + Send + Sync {
     /// Folders where people usually keep games downloaded from websites.
     fn game_folders(&self) -> Vec<PathBuf>;
 
+    /// Folders whose apps and shortcuts go on the console home's Media tab.
+    fn media_folders(&self) -> Vec<PathBuf>;
+
     /// The first connected game controller.
     fn gamepad_state(&self) -> Option<GamepadState>;
 }

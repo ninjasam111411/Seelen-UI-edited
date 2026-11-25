@@ -148,10 +148,19 @@ Settings.onChange((s) => (settings.value = s));
 
 const games = lazyRune(() => invoke(SeelenCommand.GetInstalledGames));
 
+/** apps and shortcuts in Media folders (e.g. C:\Media), shown on the Media tab by themselves */
+const mediaFolderItems = lazyRune(() => invoke(SeelenCommand.GetMediaFolderItems));
+
 const startMenuItems = lazyRune(() => invoke(SeelenCommand.GetStartMenuItems));
 subscribe(SeelenEvent.StartMenuItemsChanged, startMenuItems.setByPayload);
 
-await Promise.all([settings.init(), games.init(), startMenuItems.init(), monitors.init()]);
+await Promise.all([
+  settings.init(),
+  games.init(),
+  mediaFolderItems.init(),
+  startMenuItems.init(),
+  monitors.init(),
+]);
 // load the strings before the first render, so labels never show their raw keys
 await locale.set(settings.value.language);
 
@@ -161,10 +170,11 @@ $effect.root(() => {
   });
 });
 
-// newly installed games show up without restarting
+// newly installed games (and apps put in a Media folder) show up without restarting
 setInterval(async () => {
   try {
     games.value = await invoke(SeelenCommand.GetInstalledGames);
+    mediaFolderItems.value = await invoke(SeelenCommand.GetMediaFolderItems);
   } catch (e) {
     console.error(e);
   }
@@ -233,6 +243,8 @@ const mediaDiscs = $derived.by((): Disc[] => {
     seen.add(key);
     found.push({ ...entryToDisc(entry), id: `media:${entry.id}`, source: translate("app") });
   };
+  // things put in a Media folder come first: they were put there on purpose
+  for (const path of mediaFolderItems.value as string[]) add(mediaFolderEntry(path));
   for (const item of startMenuItems.value as StartMenuItem[]) {
     if (MEDIA_APP_NAMES.has(normalizeName(item.display_name))) add(startMenuEntry(item));
   }
@@ -401,6 +413,23 @@ function runLaunch(launch: LaunchSpec): Promise<unknown> {
         elevated: false,
       });
   }
+}
+
+/** A Media folder item: a shortcut or program, or the program found in a folder in it. */
+function mediaFolderEntry(path: string): LibraryEntry {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  const file = parts[parts.length - 1] ?? path;
+  const isExe = /\.exe$/i.test(file);
+  // a program found inside a folder is named after its folder
+  const inFolder = isExe && parts.length >= 3 && !/^media$/i.test(parts[parts.length - 2] ?? "");
+  const title = inFolder ? parts[parts.length - 2]! : file.replace(/\.(lnk|url|exe|appref-ms)$/i, "");
+  return {
+    id: path,
+    title,
+    iconPath: path,
+    iconUmid: null,
+    launch: isExe ? { type: "exe" as const, path } : { type: "file" as const, path },
+  };
 }
 
 function startMenuEntry(item: StartMenuItem): LibraryEntry {

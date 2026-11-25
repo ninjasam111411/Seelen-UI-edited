@@ -511,6 +511,7 @@ slu_commands_declaration! {
     // Games (console room)
     GetInstalledGames = get_installed_games() -> Vec<InstalledGame>,
     GetGamepadState = get_gamepad_state() -> Option<GamepadState>,
+    GetMediaFolderItems = get_media_folder_items() -> Vec<std::path::PathBuf>,
 
     // Windows Manager
     WmGetRenderTree = wm_get_render_tree() -> TwmGlobalRuntimeTree,

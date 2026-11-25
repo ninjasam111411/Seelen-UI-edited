@@ -9,7 +9,7 @@
 
 use std::{path::PathBuf, time::Duration};
 
-use seelen_core::state::HideMode;
+use seelen_core::state::{HideMode, SeelenWegMode};
 
 use crate::{
     error::ResultLogExt, get_tokio_handle, state::FULL_STATE,
@@ -28,6 +28,7 @@ const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 pub fn migrate_settings() {
     migrate_toolbar();
     migrate_dock();
+    migrate_dock_full_width();
 }
 
 fn migrate_toolbar() {
@@ -58,6 +59,30 @@ fn migrate_dock() {
         FULL_STATE.rcu(|state| {
             let mut state = state.cloned();
             state.settings.by_widget.weg.hide_mode = HideMode::Never;
+            state
+        });
+        FULL_STATE.load().write_settings().log_error();
+    }
+    std::fs::write(&marker, b"done").log_error();
+}
+
+/// The dock's strip showed the wallpaper on both sides of a centered dock (and around its margin)
+/// above maximized windows: the dock now fills the strip, like a taskbar.
+fn migrate_dock_full_width() {
+    let marker = SEELEN_COMMON.app_data_dir().join("edited-migrated-dock-full-width");
+    if marker.exists() {
+        return;
+    }
+    let needed = {
+        let state = FULL_STATE.load();
+        let weg = &state.settings.by_widget.weg;
+        weg.mode != SeelenWegMode::FullWidth || weg.margin != 0
+    };
+    if needed {
+        FULL_STATE.rcu(|state| {
+            let mut state = state.cloned();
+            state.settings.by_widget.weg.mode = SeelenWegMode::FullWidth;
+            state.settings.by_widget.weg.margin = 0;
             state
         });
         FULL_STATE.load().write_settings().log_error();

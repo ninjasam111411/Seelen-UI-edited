@@ -99,22 +99,11 @@ impl GamesSystem for WindowsGames {
     }
 
     fn game_folders(&self) -> Vec<PathBuf> {
-        let mut folders = Vec::new();
-        if let Some(home) = std::env::var_os("USERPROFILE").map(PathBuf::from) {
-            for sub in [
-                r"Games",
-                r"Downloads\Games",
-                r"Desktop\Games",
-                r"Documents\Games",
-            ] {
-                folders.push(home.join(sub));
-            }
-        }
-        for drive in ["C", "D", "E", "F"] {
-            folders.push(PathBuf::from(format!(r"{drive}:\Games")));
-        }
-        folders.retain(|f| f.is_dir());
-        folders
+        special_folders("Games")
+    }
+
+    fn media_folders(&self) -> Vec<PathBuf> {
+        special_folders("Media")
     }
 
     fn gamepad_state(&self) -> Option<GamepadState> {
@@ -134,4 +123,21 @@ impl GamesSystem for WindowsGames {
         *NEXT_PAD_CHECK.lock() = found.is_none().then(|| Instant::now() + NO_PAD_RECHECK);
         found
     }
+}
+
+/// The existing folders with this name in the user's home (and its Downloads, Desktop and
+/// Documents) and at the root of the usual drives, user ones first.
+fn special_folders(name: &str) -> Vec<PathBuf> {
+    let mut folders = Vec::new();
+    if let Some(home) = std::env::var_os("USERPROFILE").map(PathBuf::from) {
+        folders.push(home.join(name));
+        for parent in ["Downloads", "Desktop", "Documents"] {
+            folders.push(home.join(parent).join(name));
+        }
+    }
+    for drive in ["C", "D", "E", "F"] {
+        folders.push(PathBuf::from(format!(r"{drive}:\{name}")));
+    }
+    folders.retain(|f| f.is_dir());
+    folders
 }
