@@ -285,7 +285,15 @@
   style:--ch-art-hue={artHue}
 >
   {#if !home.menuOpen}
-    <RoomScene tvTitle={$t("title")} tvHint={$t("turn_on")} zoomed={roomZoomed} onTurnOn={turnOn} onBackground={toggleWindows} />
+    <RoomScene
+      tvTitle={$t("title")}
+      tvHint={$t("turn_on")}
+      zoomed={roomZoomed}
+      discs={home.gameDiscs}
+      onTurnOn={turnOn}
+      onBackground={toggleWindows}
+      onPlayDisc={(disc) => home.play(disc, true)}
+    />
   {:else}
   <!-- background art of the selected game -->
   <div class="ch-art">

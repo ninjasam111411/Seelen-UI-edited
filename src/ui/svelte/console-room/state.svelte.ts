@@ -252,27 +252,35 @@ const mediaDiscs = $derived.by((): Disc[] => {
   return found;
 });
 
-/** every disc with the user's changes applied, hidden ones included */
-const everyDisc = $derived(
-  [...(tab === "media" ? mediaDiscs : [...gameDiscs, ...burned])].map((d): Disc => ({
+/** the user's changes (name, cover, favorite, hidden) applied to discs */
+function customized(list: Disc[]): Disc[] {
+  return list.map((d): Disc => ({
     ...d,
     title: custom.names[d.id] ?? d.title,
     cover: custom.covers[d.id] ?? d.cover,
     favorite: custom.favorites.includes(d.id),
     hidden: custom.hidden.includes(d.id),
-  })),
-);
+  }));
+}
 
 /** like a console: favorites first, then the most recently played, then the rest by name */
-const allDiscs = $derived(
-  everyDisc
-    .filter((d) => showHidden || !d.hidden)
-    .sort((a, b) => {
-      if (a.favorite !== b.favorite) return a.favorite ? -1 : 1;
-      const played = (custom.lastPlayed[b.id] ?? 0) - (custom.lastPlayed[a.id] ?? 0);
-      if (played !== 0) return played;
-      return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
-    }),
+function consoleOrder(a: Disc, b: Disc): number {
+  if (a.favorite !== b.favorite) return a.favorite ? -1 : 1;
+  const played = (custom.lastPlayed[b.id] ?? 0) - (custom.lastPlayed[a.id] ?? 0);
+  if (played !== 0) return played;
+  return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+}
+
+/** every disc of the open tab with the user's changes applied, hidden ones included */
+const everyDisc = $derived(customized(tab === "media" ? mediaDiscs : [...gameDiscs, ...burned]));
+
+const allDiscs = $derived(everyDisc.filter((d) => showHidden || !d.hidden).sort(consoleOrder));
+
+/** the games for the room's shelf, whatever tab the menu was left on */
+const shelfGames = $derived(
+  customized([...gameDiscs, ...burned])
+    .filter((d) => !d.hidden)
+    .sort(consoleOrder),
 );
 const hiddenCount = $derived(everyDisc.filter((d) => d.hidden).length);
 const selected = $derived(allDiscs.find((d) => d.id === selectedId) ?? allDiscs[0] ?? null);
@@ -587,6 +595,9 @@ function endDrag() {
 class ConsoleHomeState {
   get discs() {
     return allDiscs;
+  }
+  get gameDiscs() {
+    return shelfGames;
   }
   get selected() {
     return selected;

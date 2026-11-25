@@ -1,21 +1,144 @@
 <script lang="ts">
   // The room shown while the console is "off": drawn with CSS 3D on a 1920x1080 stage that is
-  // scaled to cover the monitor. Clicking the TV turns the console on: the view zooms into the TV
-  // and the home menu opens. Clicking anywhere else minimizes every window (and brings them back
-  // on the next click), like clicking the wallpaper on a Mac.
+  // scaled to cover the monitor. Drag to look around and scroll to walk. The shelf on the left
+  // wall holds the game discs: drag one into the console to play it. Clicking the TV turns the
+  // console on: the view zooms into the TV and the home menu opens. A quick, still click anywhere
+  // else minimizes the windows (and brings them back on the next one), like a Mac's wallpaper.
+
+  import type { Disc } from "../state.svelte.ts";
+  import DiscFace from "./DiscFace.svelte";
 
   interface Props {
     tvTitle: string;
     tvHint: string;
     /** zoomed into the TV (while turning on, or just before the room shows again) */
     zoomed: boolean;
+    /** games for the shelf */
+    discs: Disc[];
     onTurnOn: () => void;
     onBackground: () => void;
+    /** a disc was dropped in the console */
+    onPlayDisc: (disc: Disc) => void;
   }
 
-  let { tvTitle, tvHint, zoomed, onTurnOn, onBackground }: Props = $props();
+  let { tvTitle, tvHint, zoomed, discs, onTurnOn, onBackground, onPlayDisc }: Props = $props();
 
   let pressAt: { x: number; y: number; t: number } | null = null;
+
+  // ─── camera: drag to look, scroll to walk ──────────────────────────────────
+  const MAX_PITCH = 30;
+  const WALK_LIMIT_X = 1050;
+  const WALK_LIMIT_Z_BACK = -950;
+  const WALK_LIMIT_Z_FRONT = 1150;
+  /** movement before a press counts as a drag (and not as a click) */
+  const DRAG_THRESHOLD = 6;
+  const SHELF_SIZE = 16;
+
+  let yaw = $state(0);
+  let pitch = $state(0);
+  let cameraX = $state(0);
+  // starts where the room was designed to be seen from
+  let cameraZ = $state(900);
+  /** going back to the start position before zooming into the TV */
+  let returning = $state(false);
+  let looking = $state<{ x: number; y: number; moved: boolean } | null>(null);
+
+  const shelfDiscs = $derived(discs.slice(0, SHELF_SIZE));
+
+  function clamp(value: number, min: number, max: number) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function onLookMove(e: PointerEvent) {
+    if (disc) {
+      moveDisc(e);
+      return;
+    }
+    if (!looking || zoomed) return;
+    const dx = e.clientX - looking.x;
+    const dy = e.clientY - looking.y;
+    if (!looking.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    looking = { x: e.clientX, y: e.clientY, moved: true };
+    // grabbing the room: dragging right turns the view left
+    yaw -= dx * 0.12;
+    pitch = clamp(pitch + dy * 0.1, -MAX_PITCH, MAX_PITCH);
+  }
+
+  function onWheel(e: WheelEvent) {
+    if (zoomed || returning) return;
+    e.preventDefault();
+    const step = -e.deltaY * 1.2;
+    const radians = (yaw * Math.PI) / 180;
+    cameraX = clamp(cameraX + Math.sin(radians) * step, -WALK_LIMIT_X, WALK_LIMIT_X);
+    cameraZ = clamp(cameraZ - Math.cos(radians) * step, WALK_LIMIT_Z_BACK, WALK_LIMIT_Z_FRONT);
+  }
+
+  /** Walks back to the start position (facing the TV and console), then calls `then`. */
+  function returnToStart(then?: () => void) {
+    const moved = yaw !== 0 || pitch !== 0 || cameraX !== 0 || cameraZ !== CAMERA_Z;
+    if (!moved) {
+      then?.();
+      return;
+    }
+    returning = true;
+    yaw = 0;
+    pitch = 0;
+    cameraX = 0;
+    cameraZ = CAMERA_Z;
+    setTimeout(() => {
+      returning = false;
+      then?.();
+    }, 520);
+  }
+
+  /** the zoom into the TV is made for the start position, so walk back there first */
+  function turnOn() {
+    returnToStart(onTurnOn);
+  }
+
+  // ─── dragging a disc from the shelf into the console ───────────────────────
+  let disc = $state<{ disc: Disc; x: number; y: number; overConsole: boolean } | null>(null);
+  let consoleEl: HTMLDivElement | undefined = $state();
+
+  function grabDisc(e: PointerEvent, item: Disc) {
+    if (e.button !== 0 || zoomed) return;
+    e.stopPropagation();
+    e.preventDefault();
+    pressAt = null;
+    looking = null;
+    disc = { disc: item, x: e.clientX, y: e.clientY, overConsole: false };
+    // turn to face the console, so the disc can be carried to it
+    returnToStart();
+  }
+
+  function moveDisc(e: PointerEvent) {
+    if (!disc) return;
+    const rect = consoleEl?.getBoundingClientRect();
+    // a console behind the camera gets a huge, meaningless box: only a visible one counts
+    const visible = !!rect &&
+      rect.width > 0 &&
+      rect.width < window.innerWidth / 2 &&
+      rect.right > 0 &&
+      rect.left < window.innerWidth &&
+      rect.bottom > 0 &&
+      rect.top < window.innerHeight;
+    // generous target: the console is small from across the room
+    const pad = 70;
+    const over = visible && !!rect &&
+      e.clientX > rect.left - pad &&
+      e.clientX < rect.right + pad &&
+      e.clientY > rect.top - pad &&
+      e.clientY < rect.bottom + pad;
+    disc = { ...disc, x: e.clientX, y: e.clientY, overConsole: over };
+  }
+
+  function onPointerUp() {
+    looking = null;
+    if (!disc) return;
+    const dropped = disc;
+    disc = null;
+    if (dropped.overConsole) onPlayDisc(dropped.disc);
+  }
 
   /** TV center in the stage, from its 3D position (camera at z 900, perspective 960) */
   const TV_SCREEN_Y = -59;
@@ -109,11 +232,18 @@
   }
 </script>
 
+<svelte:window onpointermove={onLookMove} onpointerup={onPointerUp} />
+
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div
   class="room-wallpaper"
+  class:room-looking={!!looking?.moved}
   bind:this={container}
-  onpointerdown={(e) => (pressAt = e.button === 0 && e.isTrusted ? { x: e.clientX, y: e.clientY, t: e.timeStamp } : null)}
+  onwheel={onWheel}
+  onpointerdown={(e) => {
+    pressAt = e.button === 0 && e.isTrusted ? { x: e.clientX, y: e.clientY, t: e.timeStamp } : null;
+    if (e.button === 0) looking = { x: e.clientX, y: e.clientY, moved: false };
+  }}
   onclick={(e) => {
     // only a real, quick, still click: not a drag, a double click or a synthetic click
     const press = pressAt;
@@ -136,7 +266,11 @@
     style:transform={`translate(-50%, -50%) scale(${scale})`}
     style:perspective={PERSPECTIVE + "px"}
   >
-    <div class="world" style:transform={`translateZ(${PERSPECTIVE}px) translate3d(0px, 0px, ${-CAMERA_Z}px)`}>
+    <div
+      class="world"
+      class:world-returning={returning}
+      style:transform={`translateZ(${PERSPECTIVE}px) rotateX(${pitch}deg) rotateY(${yaw}deg) translate3d(${-cameraX}px, 0px, ${-cameraZ}px)`}
+    >
       {#each surfaces as surface (surface.name)}
         <div class="surface" style:transform={surface.transform}>
           {#each tiles(surface.width, surface.height) as tile (tile.key)}
@@ -155,7 +289,7 @@
               style:transform={onWall(0, -140 - WALL_CENTER_Y, 20)}
               onclick={(e) => {
                 e.stopPropagation();
-                onTurnOn();
+                turnOn();
               }}
             >
               <div class="tv-screen">
@@ -167,7 +301,20 @@
             <div class="plane shelf" style:transform={onWall(150, -80 - WALL_CENTER_Y, 30)}>
               <div class="panel-title">Game Shelf</div>
               <div class="shelf-grid">
-                {#each DISC_COLORS as color, i (i)}
+                <!-- the real games first (drag one into the console), empty slots after -->
+                {#each shelfDiscs as item (item.id)}
+                  <div
+                    class="disc disc-real"
+                    class:disc-taken={disc?.disc.id === item.id}
+                    role="button"
+                    tabindex="-1"
+                    aria-label={item.title}
+                    onpointerdown={(e) => grabDisc(e, item)}
+                  >
+                    <DiscFace cover={item.cover} iconPath={item.iconPath} iconUmid={item.iconUmid} />
+                  </div>
+                {/each}
+                {#each DISC_COLORS.slice(shelfDiscs.length) as color, i (i)}
                   <div class="disc">
                     <div class="disc-label" style:background={color}></div>
                     <div class="disc-hole"></div>
@@ -199,7 +346,13 @@
         style:transform={place(0, (FLOOR_Y + STAND_TOP) / 2, STAND_FRONT_Z)}
       ></div>
       <div class="plane stand-top" style:transform={place(0, STAND_TOP, STAND_FRONT_Z - 150, "rotateX(90deg)")}></div>
-      <div class="plane console" style:transform={place(640, STAND_TOP - 180, STAND_FRONT_Z - 60)}>
+      <div
+        class="plane console"
+        class:console-target={!!disc}
+        class:console-over={disc?.overConsole}
+        bind:this={consoleEl}
+        style:transform={place(640, STAND_TOP - 180, STAND_FRONT_Z - 60)}
+      >
         <div class="console-shell left"></div>
         <div class="console-core">
           <div class="console-slot"></div>
@@ -211,6 +364,14 @@
     </div>
   </div>
 </div>
+
+  <!-- the disc being carried to the console -->
+  {#if disc}
+    <div class="carried-disc" class:carried-over={disc.overConsole} style:left={disc.x + "px"} style:top={disc.y + "px"}>
+      <DiscFace cover={disc.disc.cover} iconPath={disc.disc.iconPath} iconUmid={disc.disc.iconUmid} spinning />
+      <span class="carried-title">{disc.disc.title}</span>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -220,6 +381,74 @@
     overflow: hidden;
     /* matches the ceiling, so tiles Chrome skips right above the camera don't show as holes */
     background: linear-gradient(180deg, #232733 0%, #13151b 45%, #2a2219 100%);
+  }
+
+  .room-looking {
+    cursor: grabbing;
+  }
+
+  .world-returning {
+    transition: transform 0.5s cubic-bezier(0.65, 0, 0.35, 1);
+  }
+
+  .disc-real {
+    background: none;
+    cursor: grab;
+    transition: transform 0.15s ease;
+  }
+
+  .disc-real:hover {
+    transform: translateZ(20px) scale(1.06);
+  }
+
+  .disc-taken {
+    opacity: 0.25;
+  }
+
+  .disc-real :global(.cr-disc-face) {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* the console glows while a disc is carried, brighter when it would go in */
+  .console-target {
+    filter: drop-shadow(0 0 30px rgb(120 170 255 / 0.55));
+  }
+
+  .console-over {
+    filter: drop-shadow(0 0 60px rgb(150 200 255 / 0.95));
+  }
+
+  .carried-disc {
+    position: fixed;
+    z-index: 20;
+    width: 130px;
+    height: 130px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    transition: transform 0.15s ease;
+  }
+
+  .carried-disc :global(.cr-disc-face) {
+    width: 100%;
+    height: 100%;
+  }
+
+  .carried-over {
+    transform: translate(-50%, -50%) scale(0.75);
+  }
+
+  .carried-title {
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    margin-top: 8px;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    text-shadow: 0 2px 8px rgb(0 0 0 / 0.8);
   }
 
   .zoom {
