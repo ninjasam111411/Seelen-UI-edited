@@ -41,8 +41,12 @@
 
   /** clicking the TV turns the console on: zoom into it, then show the home menu */
   /** clicking the room anywhere but the TV: the windows on its monitor away / back, like a Mac */
+  let lastToggle = 0;
   function toggleWindows() {
     if (roomZoomed) return;
+    const now = performance.now();
+    if (now - lastToggle < 1500) return;
+    lastToggle = now;
     invoke(SeelenCommand.ToggleMinimizeAll, { monitorId: monitors.primaryMonitor?.id ?? null }).catch(
       console.error,
     );

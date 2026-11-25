@@ -15,6 +15,8 @@
 
   let { tvTitle, tvHint, zoomed, onTurnOn, onBackground }: Props = $props();
 
+  let pressAt: { x: number; y: number; t: number } | null = null;
+
   /** TV center in the stage, from its 3D position (camera at z 900, perspective 960) */
   const TV_SCREEN_Y = -59;
   /** zoom that makes the TV fill the screen */
@@ -108,7 +110,19 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="room-wallpaper" bind:this={container} onclick={() => onBackground()}>
+<div
+  class="room-wallpaper"
+  bind:this={container}
+  onpointerdown={(e) => (pressAt = e.button === 0 && e.isTrusted ? { x: e.clientX, y: e.clientY, t: e.timeStamp } : null)}
+  onclick={(e) => {
+    // only a real, quick, still click: not a drag, a double click or a synthetic click
+    const press = pressAt;
+    pressAt = null;
+    if (!press || !e.isTrusted || e.detail !== 1) return;
+    if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6 || e.timeStamp - press.t > 600) return;
+    onBackground();
+  }}
+>
   <div
     class="zoom"
     class:zoomed

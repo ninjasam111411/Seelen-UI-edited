@@ -26,6 +26,8 @@ pub struct UserAppsManager {
     pub interactable_windows: SyncVec<UserAppWindow>,
     /// Windows minimized by [`Self::toggle_minimize_all`] (top-most first), to bring them back.
     minimized_by_toggle: TracedMutex<Vec<isize>>,
+    /// when [`Self::toggle_minimize_all`] last acted, in milliseconds
+    last_minimize_toggle: TracedMutex<i64>,
 }
 
 event_manager!(UserAppsManager, UserAppWinEvent);
@@ -45,6 +47,7 @@ impl UserAppsManager {
             platform: Platform::create(),
             interactable_windows: SyncVec::new(),
             minimized_by_toggle: TracedMutex::new(Vec::new()),
+            last_minimize_toggle: TracedMutex::new(0),
         }
     }
 
@@ -216,6 +219,17 @@ impl UserAppsManager {
     /// Minimizes the open windows of the current virtual desktop (on `monitor`, if given). When
     /// none is open, restores the ones minimized by the last call, in their previous order.
     pub fn toggle_minimize_all(&self, monitor: Option<&MonitorId>) -> Result<()> {
+        // a burst of calls (e.g. clicks while windows are still animating) must not make the
+        // windows go away and come back over and over
+        {
+            let mut last = self.last_minimize_toggle.lock();
+            let now = now_millis();
+            if now - *last < 1500 {
+                return Ok(());
+            }
+            *last = now;
+        }
+
         let open: Vec<isize> = self
             .interactable_windows
             .to_vec()
