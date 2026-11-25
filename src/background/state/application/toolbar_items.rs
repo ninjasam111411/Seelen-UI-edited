@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::LazyLock};
+use std::sync::LazyLock;
 
 use seelen_core::{
     resource::WidgetId,
@@ -48,6 +48,13 @@ impl ToolbarItemsManager {
         let items = if path.exists() {
             let mut items: ToolbarState = serde_yaml::from_str(&std::fs::read_to_string(&path)?)?;
             items.sanitize();
+            // one-time change of a layout saved by earlier builds (can be changed back after)
+            let marker = path.with_file_name("edited-migrated-layout");
+            if !marker.exists() {
+                apply_edited_layout(&mut items);
+                atomic_write_file(&path, serde_yaml::to_string(&items)?.as_bytes())?;
+                atomic_write_file(&marker, b"done")?;
+            }
             items
         } else {
             let mut items = initial_items();
@@ -70,15 +77,13 @@ fn initial_items() -> ToolbarState {
                 ..Default::default()
             })),
             ToolbarItem2::Plugin("@default/focused-app".into()),
-            ToolbarItem2::Inline(Box::new(ToolbarItem {
-                scopes: HashSet::from(["FocusedApp".to_owned()]),
-                template: "return focusedApp.title ? \"-\" : \"\"".into(),
-                ..Default::default()
-            })),
-            ToolbarItem2::Plugin("@default/focused-app-title".into()),
         ],
         center: vec![ToolbarItem2::Plugin("@seelen/tb-calendar-popup".into())],
         right: vec![
+            ToolbarItem2::Plugin("@default/cpu-usage".into()),
+            ToolbarItem2::Plugin("@default/gpu-usage".into()),
+            ToolbarItem2::Plugin("@default/memory-usage".into()),
+            ToolbarItem2::Plugin("@default/network-usage".into()),
             ToolbarItem2::Plugin("@seelen/tb-system-tray".into()),
             ToolbarItem2::Plugin("@seelen/tb-keyboard-selector".into()),
             ToolbarItem2::Plugin("@seelen/tb-bluetooth-popup".into()),
@@ -90,4 +95,36 @@ fn initial_items() -> ToolbarState {
         ],
         ..Default::default()
     }
+}
+
+/// Only the focused app's icon and name on the left (not its window title, which can be long),
+/// and live CPU, GPU, memory and network usage on the right.
+fn apply_edited_layout(items: &mut ToolbarState) {
+    let is_title = |item: &ToolbarItem2| match item {
+        ToolbarItem2::Plugin(id) => id.to_string() == "@default/focused-app-title",
+        // the "-" shown between the app name and its title
+        ToolbarItem2::Inline(inline) => inline.template.contains("focusedApp.title"),
+    };
+    for side in [&mut items.left, &mut items.center, &mut items.right] {
+        side.retain(|item| !is_title(item));
+    }
+
+    let has = |items: &ToolbarState, plugin: &str| {
+        [&items.left, &items.center, &items.right]
+            .iter()
+            .flat_map(|side| side.iter())
+            .any(|item| matches!(item, ToolbarItem2::Plugin(id) if id.to_string() == plugin))
+    };
+    let stats = [
+        "@default/cpu-usage",
+        "@default/gpu-usage",
+        "@default/memory-usage",
+        "@default/network-usage",
+    ];
+    let missing: Vec<ToolbarItem2> = stats
+        .iter()
+        .filter(|plugin| !has(items, plugin))
+        .map(|plugin| ToolbarItem2::Plugin((*plugin).into()))
+        .collect();
+    items.right.splice(0..0, missing);
 }
