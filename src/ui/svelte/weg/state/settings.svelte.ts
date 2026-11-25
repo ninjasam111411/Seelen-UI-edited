@@ -187,8 +187,16 @@ async function updateWidgetPosition() {
   }
 
   if (hideMode === HideMode.Never || isTouch) {
+    // the dock's outer margin on the screen side away from the edge is left to the windows, so
+    // they sit right against the dock instead of leaving an empty gap
+    const gap = Math.round(settings.margin * systemState.currentMonitor.scaleFactor);
+    const reserved = { ...hitboxRect };
+    if (position === SeelenWegSide.Top) reserved.bottom -= gap;
+    else if (position === SeelenWegSide.Bottom) reserved.top += gap;
+    else if (position === SeelenWegSide.Left) reserved.right -= gap;
+    else if (position === SeelenWegSide.Right) reserved.left += gap;
     await invoke(SeelenCommand.RegisterAppBar, {
-      rect: hitboxRect,
+      rect: reserved,
       edge: position as any,
     });
   } else {

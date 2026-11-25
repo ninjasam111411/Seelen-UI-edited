@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 use windows::Win32::{
-    Foundation::{HWND, LPARAM, LRESULT, WPARAM},
+    Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
     System::{
         DataExchange::AddClipboardFormatListener,
         Power::RegisterSuspendResumeNotification,
@@ -175,6 +175,15 @@ impl BgWindowProc {
                 return LRESULT(0);
             }
 
+            if msg == WM_SHELLHOOKMESSAGE.load(Ordering::Relaxed)
+                && w_param.0 as u32 == HSHELL_GETMINRECT
+                && l_param.0 != 0
+                && let Some(rect) = minimize_target(&*(l_param.0 as *const ShellHookInfo))
+            {
+                (*(l_param.0 as *mut ShellHookInfo)).rc = rect;
+                return LRESULT(1);
+            }
+
             // Handle session change notifications to pause background processing
             // when the session is locked or user switches
             if msg == WM_WTSSESSION_CHANGE {
@@ -209,6 +218,55 @@ impl BgWindowProc {
             DefWindowProcW(hwnd, msg, w_param, l_param)
         }
     }
+}
+
+/// Asked by Windows where a window being minimized shrinks to (`lParam` of `HSHELL_GETMINRECT`).
+const HSHELL_GETMINRECT: u32 = 4;
+
+#[repr(C)]
+struct ShellHookInfo {
+    hwnd: HWND,
+    rc: RECT,
+}
+
+/// Where minimized windows shrink to when the dock is not at the bottom of the screen, as the
+/// hidden Windows taskbar would make them go down: the middle of the dock's edge of the window's
+/// monitor. `None` keeps the default.
+fn minimize_target(info: &ShellHookInfo) -> Option<RECT> {
+    use seelen_core::state::SeelenWegSide;
+
+    let weg = crate::state::FULL_STATE.load().settings.by_widget.weg.clone();
+    if !weg.enabled || weg.position == SeelenWegSide::Bottom {
+        return None;
+    }
+    let monitor = WindowsApi::monitor_rect(WindowsApi::monitor_from_window(info.hwnd)).ok()?;
+    let (center_x, center_y) = (
+        (monitor.left + monitor.right) / 2,
+        (monitor.top + monitor.bottom) / 2,
+    );
+    const HALF: i32 = 24;
+    const DEPTH: i32 = 48;
+    Some(match weg.position {
+        SeelenWegSide::Top => RECT {
+            left: center_x - HALF,
+            top: monitor.top,
+            right: center_x + HALF,
+            bottom: monitor.top + DEPTH,
+        },
+        SeelenWegSide::Left => RECT {
+            left: monitor.left,
+            top: center_y - HALF,
+            right: monitor.left + DEPTH,
+            bottom: center_y + HALF,
+        },
+        SeelenWegSide::Right => RECT {
+            left: monitor.right - DEPTH,
+            top: center_y - HALF,
+            right: monitor.right,
+            bottom: center_y + HALF,
+        },
+        SeelenWegSide::Bottom => return None,
+    })
 }
 
 /// Registers shell change notifications for the Recycle Bin on the background window.

@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     get_tokio_handle,
     system_modules::games::domain::{
-        EpicArt, base_game_name, itch_search_match, steam_art_urls, steam_icon_url,
+        EpicArt, base_game_name, duckduckgo_images, duckduckgo_token, itch_search_match, steam_art_urls, steam_icon_url,
         steam_search_match, steam_search_similar, wikipedia_cover_match,
     },
     utils::{constants::SEELEN_COMMON, lock_free::TracedMutex},
@@ -28,7 +28,7 @@ use crate::{
 
 const RETRY_AFTER_SECS: u64 = 24 * 60 * 60;
 /// Bumped when new kinds of art are looked up, so games checked before get them too.
-const ART_VERSION: u32 = 4;
+const ART_VERSION: u32 = 5;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 static INDEX: LazyLock<TracedMutex<HashMap<String, ArtEntry>>> =
@@ -193,6 +193,13 @@ async fn find_art(game: &InstalledGame, previous: ArtEntry) -> ArtEntry {
             entry.cover = download_first(&[url], &path("cover", "png")).await;
         }
     }
+    // last resort, for any name: the first good picture of the game on the web
+    if need_cover && entry.cover.is_none() {
+        let urls = search_web_images(&game.name).await;
+        if !urls.is_empty() {
+            entry.cover = download_first(&urls, &path("cover", "jpg")).await;
+        }
+    }
     entry
 }
 
@@ -214,6 +221,44 @@ async fn search_steam(name: &str) -> Option<String> {
         similar = similar.or_else(|| steam_search_similar(&body, name));
     }
     similar
+}
+
+/// Pictures of the game from a web image search (safe search on).
+async fn search_web_images(name: &str) -> Vec<String> {
+    let query = format!("{} game cover art", search_terms(name).pop().unwrap_or_default());
+    let encoded = urlencoding::encode(&query);
+    // the search pages are made for browsers
+    const BROWSER: &str =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36";
+    let page = HTTP
+        .get(format!("https://duckduckgo.com/?q={encoded}&iax=images&ia=images"))
+        .header(reqwest::header::USER_AGENT, BROWSER)
+        .send()
+        .await;
+    let token = match page {
+        Ok(r) if r.status().is_success() => r.text().await.ok().and_then(|p| duckduckgo_token(&p)),
+        _ => None,
+    };
+    let Some(token) = token else {
+        return Vec::new();
+    };
+    let url = format!(
+        "https://duckduckgo.com/i.js?l=us-en&o=json&q={encoded}&vqd={token}&f=,,,,,&p=1"
+    );
+    let response = HTTP
+        .get(url)
+        .header(reqwest::header::REFERER, "https://duckduckgo.com/")
+        .header(reqwest::header::USER_AGENT, BROWSER)
+        .send()
+        .await;
+    match response {
+        Ok(r) if r.status().is_success() => r
+            .text()
+            .await
+            .map(|body| duckduckgo_images(&body))
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
 }
 
 async fn search_itch(name: &str) -> Option<String> {

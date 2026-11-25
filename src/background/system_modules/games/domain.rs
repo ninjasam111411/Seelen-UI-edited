@@ -653,6 +653,63 @@ pub fn itch_search_match(html: &str, name: &str) -> Option<String> {
         })
 }
 
+/// The search token DuckDuckGo puts in its result pages, needed by its image search.
+pub fn duckduckgo_token(html: &str) -> Option<String> {
+    ["vqd=\"", "vqd='", "vqd="].iter().find_map(|start| {
+        let rest = html.split(start).nth(1)?;
+        let token: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        (token.len() > 8).then_some(token)
+    })
+}
+
+/// Image urls from a DuckDuckGo image search (`i.js`) response, best first: big enough, about
+/// square or portrait (a cover, not a banner), the full image with its thumbnail as a fallback.
+pub fn duckduckgo_images(json: &str) -> Vec<String> {
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(json) else {
+        return Vec::new();
+    };
+    let Some(results) = json.get("results").and_then(|r| r.as_array()) else {
+        return Vec::new();
+    };
+    let mut scored: Vec<(i64, &serde_json::Value)> = results
+        .iter()
+        .take(12)
+        .enumerate()
+        .filter_map(|(rank, r)| {
+            let w = r.get("width")?.as_f64()?;
+            let h = r.get("height")?.as_f64()?;
+            if w < 250.0 || h < 250.0 {
+                return None;
+            }
+            let ratio = w / h;
+            // portrait covers and square art are best, wide banners are still usable
+            let shape = if (0.55..=1.25).contains(&ratio) {
+                0
+            } else if ratio <= 2.0 {
+                10
+            } else {
+                return None;
+            };
+            Some((shape + rank as i64, r))
+        })
+        .collect();
+    scored.sort_by_key(|(score, _)| *score);
+    scored
+        .into_iter()
+        .take(4)
+        .flat_map(|(_, r)| {
+            ["image", "thumbnail"]
+                .into_iter()
+                .filter_map(|key| r.get(key)?.as_str().map(str::to_owned))
+                .filter(|url| url.starts_with("https://"))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
 fn html_unescape(text: &str) -> String {
     text.replace("&amp;", "&")
         .replace("&#039;", "'")
@@ -1111,6 +1168,29 @@ mod tests {
             Some("https://img.itch.zone/meccha.png")
         );
         assert_eq!(itch_search_match(html, "Nothing Here"), None);
+    }
+
+    #[test]
+    fn reads_duckduckgo_results() {
+        assert_eq!(
+            duckduckgo_token(r#"<script>vqd="4-12345678901234567890";</script>"#).as_deref(),
+            Some("4-12345678901234567890")
+        );
+        assert_eq!(duckduckgo_token("nothing"), None);
+        let json = r#"{"results":[
+            {"image":"https://a.com/banner.jpg","thumbnail":"https://t.com/1","width":1920,"height":400},
+            {"image":"https://a.com/small.jpg","thumbnail":"https://t.com/2","width":100,"height":100},
+            {"image":"https://a.com/wide.jpg","thumbnail":"https://t.com/3","width":1200,"height":700},
+            {"image":"https://a.com/cover.jpg","thumbnail":"https://t.com/4","width":600,"height":900}]}"#;
+        assert_eq!(
+            duckduckgo_images(json),
+            vec![
+                "https://a.com/cover.jpg",
+                "https://t.com/4",
+                "https://a.com/wide.jpg",
+                "https://t.com/3"
+            ]
+        );
     }
 
     #[test]
