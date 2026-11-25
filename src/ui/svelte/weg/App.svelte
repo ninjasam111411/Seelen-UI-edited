@@ -25,9 +25,17 @@
       Widget.self.hide();
     }
   }, 100);
+  // a full screen app (e.g. a video in the browser) can report itself as not full screen for a
+  // moment now and then: the dock comes back only once that lasts, so it doesn't flicker over it
+  const showAfterFullscreen = debounce(() => Widget.self.show(), 1500);
 
   $effect(() => {
-    if (settingsState.isReady) {
+    if (!settingsState.isReady) return;
+    if (showWidget && !focusedIsAppsMenu) {
+      setWidgetVisibility.cancel();
+      showAfterFullscreen();
+    } else {
+      showAfterFullscreen.cancel();
       setWidgetVisibility(showWidget);
     }
   });

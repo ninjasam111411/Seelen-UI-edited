@@ -21,9 +21,11 @@
 {#if disc.cover && !failed}
   <img class="ch-cover-image" src={convertFileSrc(disc.cover)} alt="" draggable="false" onerror={() => (failed = true)} />
 {:else}
-  <!-- generated cover for games without art: color from the title, the game's icon and the name -->
+  <!-- generated cover for games without art: the game's icon fills the whole square (blown up
+       and blurred behind it), tinted with a color from the title, with the name at the bottom -->
   <div class="ch-cover-generated" style:--ch-cover-hue={hue}>
     {#if disc.icon && !iconFailed}
+      <img class="ch-cover-generated-bg" src={convertFileSrc(disc.icon)} alt="" draggable="false" />
       <img
         class="ch-cover-generated-icon"
         src={convertFileSrc(disc.icon)}
@@ -32,6 +34,7 @@
         onerror={() => (iconFailed = true)}
       />
     {:else}
+      <FileIcon class="ch-cover-generated-bg" path={disc.iconPath} umid={disc.iconUmid} draggable="false" />
       <FileIcon class="ch-cover-generated-icon" path={disc.iconPath} umid={disc.iconUmid} draggable="false" />
     {/if}
     {#if showTitle}

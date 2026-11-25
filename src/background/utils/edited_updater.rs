@@ -26,6 +26,11 @@ const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// One-time changes to settings saved by earlier edited builds, each recorded by a marker file so
 /// the user can change the setting back afterwards.
 pub fn migrate_settings() {
+    migrate_toolbar();
+    migrate_dock();
+}
+
+fn migrate_toolbar() {
     let marker = SEELEN_COMMON.app_data_dir().join("edited-migrated-toolbar-never-hide");
     if marker.exists() {
         return;
@@ -36,6 +41,23 @@ pub fn migrate_settings() {
         FULL_STATE.rcu(|state| {
             let mut state = state.cloned();
             state.settings.by_widget.fancy_toolbar.hide_mode = HideMode::Never;
+            state
+        });
+        FULL_STATE.load().write_settings().log_error();
+    }
+    std::fs::write(&marker, b"done").log_error();
+}
+
+/// Same as the toolbar for the dock, which slid in and out over maximized and full screen apps.
+fn migrate_dock() {
+    let marker = SEELEN_COMMON.app_data_dir().join("edited-migrated-dock-never-hide");
+    if marker.exists() {
+        return;
+    }
+    if FULL_STATE.load().settings.by_widget.weg.hide_mode != HideMode::Never {
+        FULL_STATE.rcu(|state| {
+            let mut state = state.cloned();
+            state.settings.by_widget.weg.hide_mode = HideMode::Never;
             state
         });
         FULL_STATE.load().write_settings().log_error();

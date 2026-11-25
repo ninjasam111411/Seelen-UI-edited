@@ -217,7 +217,8 @@ impl Default for SeelenWegSettings {
             enabled: true,
             shortcuts: None,
             mode: SeelenWegMode::MinContent,
-            hide_mode: HideMode::OnOverlap,
+            // always shown in its own reserved strip, like the top bar: windows stay clear of it
+            hide_mode: HideMode::Never,
             position: SeelenWegSide::Bottom,
             show_instance_counter: true,
             show_window_title: false,
