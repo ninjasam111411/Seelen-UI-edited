@@ -1,12 +1,17 @@
 <script lang="ts">
   // The weather popup opened from the toolbar's weather item: today at a glance, the next
   // hours, and the week with a bar for each day's low-to-high range.
-  import { Settings } from "@seelen-ui/lib";
+  import { onMount } from "svelte";
+  import { Settings, Widget } from "@seelen-ui/lib";
   import Icon from "libs/ui/svelte/components/Icon/Icon.svelte";
   import { describeWeather, weather } from "libs/ui/svelte/utils/weather.svelte.ts";
   import { locale, t } from "./i18n/index.ts";
 
   weather.init();
+  // a popup must say it is ready, or Seelen keeps holding its clicks and never shows it
+  onMount(() => {
+    Widget.getCurrent().ready();
+  });
   Settings.getAsync().then((s) => locale.set(s.language));
   Settings.onChange((s) => locale.set(s.language));
 
