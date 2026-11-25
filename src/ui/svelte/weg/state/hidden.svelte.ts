@@ -21,6 +21,27 @@ const isRevealedByAttention = $derived.by(() => {
 
 let _hiddenByAutohide = $state(false);
 let _isDraggingItem = $state(false);
+/** "always hide" dock opened by pressing its tab */
+let _tabOpen = $state(false);
+
+/**
+ * With "always hide", the dock folds into a small tab at its edge: pressing the tab opens the
+ * dock, and it folds back once the mouse has left it for a moment or an app was opened.
+ */
+export const dockTab = {
+  get enabled() {
+    return settingsState.hideMode === HideMode.Always && !isTouchPrimary.value;
+  },
+  get open() {
+    return _tabOpen;
+  },
+  toggle() {
+    _tabOpen = !_tabOpen;
+  },
+  close() {
+    _tabOpen = false;
+  },
+};
 
 export const dockShouldBeHidden = {
   get value() {
@@ -62,8 +83,10 @@ $effect.root(() => {
         flush = true;
         break;
       case HideMode.Always:
-        hidden = !isTouchPrimary.value && !isThisWebviewFocused.value && !isMouseOverEdge;
-        flush = isTouchPrimary.value;
+        // opened only by pressing its tab (no reveal at the screen edge, which made it pop out
+        // when reaching for things at the top of other windows)
+        hidden = !isTouchPrimary.value && !_tabOpen;
+        flush = isTouchPrimary.value || _tabOpen;
         break;
       case HideMode.OnOverlap:
         hidden = !isTouchPrimary.value &&

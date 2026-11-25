@@ -54,7 +54,14 @@
 }
 
 .taskbar {
-  background-color: oklch(from var(--slu-std-bg-color) l c h / 0.8);
+  // glass: a clear tint, a light shine along the top, a thin bright edge and a soft shadow
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.16) 0%, rgb(255 255 255 / 0.04) 45%, transparent 100%),
+    oklch(from var(--slu-std-bg-color) l c h / 0.38);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    inset 0 0 0 1px rgb(255 255 255 / 0.12),
+    0 8px 28px rgb(0 0 0 / 0.28);
 
   &.horizontal {
     > .weg-items-container {
@@ -348,5 +355,78 @@
 
   .media-session {
     overflow: hidden;
+  }
+}
+
+// the tab the dock folds into
+.weg-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.2) 0%, rgb(255 255 255 / 0.05) 100%),
+    oklch(from var(--slu-std-bg-color) l c h / 0.45);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.16),
+    0 4px 14px rgb(0 0 0 / 0.3);
+  transition:
+    width 0.2s ease,
+    height 0.2s ease,
+    background-color 0.2s ease;
+
+  &.top {
+    border-radius: 0 0 12px 12px;
+  }
+  &.bottom {
+    border-radius: 12px 12px 0 0;
+  }
+  &.left {
+    width: 18px;
+    height: 84px;
+    border-radius: 0 12px 12px 0;
+  }
+  &.right {
+    width: 18px;
+    height: 84px;
+    border-radius: 12px 0 0 12px;
+  }
+
+  // bigger under the mouse, so it is easy to hit
+  &:hover {
+    background-color: var(--slu-std-ui-hover-overlay);
+
+    &.top,
+    &.bottom {
+      width: 108px;
+      height: 22px;
+    }
+    &.left,
+    &.right {
+      width: 22px;
+      height: 108px;
+    }
+  }
+
+  // while the dock is open the tab gets smaller, out of the way (pressing it still closes it)
+  &.weg-tab-open {
+    opacity: 0.6;
+  }
+}
+
+.weg-tab-grip {
+  width: 30px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 0.75);
+
+  .weg-tab.left &,
+  .weg-tab.right & {
+    width: 4px;
+    height: 30px;
   }
 }

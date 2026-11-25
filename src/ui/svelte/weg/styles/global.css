@@ -65,6 +65,47 @@ body {
   }
 }
 
+/* the dock folded into its tab stays folded while the mouse is over the tab */
+#root:has(.taskbar.tab-mode.hidden.left) {
+  transform: translate(calc(var(--dock-size) * -1), 0);
+}
+#root:has(.taskbar.tab-mode.hidden.right) {
+  transform: translate(var(--dock-size), 0);
+}
+#root:has(.taskbar.tab-mode.hidden.top) {
+  transform: translate(0, calc(var(--dock-size) * -1));
+}
+#root:has(.taskbar.tab-mode.hidden.bottom) {
+  transform: translate(0, var(--dock-size));
+}
+
+/* the tab hangs from the dock's far edge, so it stays on screen while the dock is folded */
+.weg-tab {
+  position: absolute;
+  z-index: 10;
+
+  &.top {
+    top: 100%;
+    left: 50%;
+    translate: -50% 0;
+  }
+  &.bottom {
+    bottom: 100%;
+    left: 50%;
+    translate: -50% 0;
+  }
+  &.left {
+    left: 100%;
+    top: 50%;
+    translate: 0 -50%;
+  }
+  &.right {
+    right: 100%;
+    top: 50%;
+    translate: 0 -50%;
+  }
+}
+
 /** Taskbar Styles */
 .taskbar {
   position: relative;

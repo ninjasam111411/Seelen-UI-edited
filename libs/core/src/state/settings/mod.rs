@@ -216,16 +216,16 @@ impl Default for SeelenWegSettings {
         Self {
             enabled: true,
             shortcuts: None,
-            // spans its whole reserved strip like a taskbar, so no wallpaper shows beside it
-            mode: SeelenWegMode::FullWidth,
-            // always shown in its own reserved strip, like the top bar: windows stay clear of it
-            hide_mode: HideMode::Never,
+            // folds into a small tab at its edge; pressing the tab opens it as a compact dock
+            mode: SeelenWegMode::MinContent,
+            hide_mode: HideMode::Always,
             position: SeelenWegSide::Bottom,
             show_instance_counter: true,
             show_window_title: false,
             temporal_items_visibility: WegTemporalItemsVisibility::All,
             pinned_items_visibility: WegPinnedItemsVisibility::Always,
-            size: 40,
+            // a little bigger than the default, so the icons are easy to press
+            size: 48,
             margin: 8,
             padding: 8,
             space_between_items: 8,

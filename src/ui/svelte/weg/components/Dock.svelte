@@ -10,7 +10,7 @@
   import { settingsState } from "../state/settings.svelte.ts";
   import { systemState } from "../state/system.svelte.ts";
   import { getWindowsForItem, windowsState } from "../state/windows.svelte.ts";
-  import { dockShouldBeHidden, setDockIsDraggingItem } from "../state/hidden.svelte.ts";
+  import { dockShouldBeHidden, dockTab, setDockIsDraggingItem } from "../state/hidden.svelte.ts";
   import { getSeelenWegMenu } from "../dockMenu.ts";
   import { createDragDropManager } from "libs/ui/dnd.ts";
   import type { SwItem } from "../types.ts";
@@ -77,6 +77,28 @@
     dockState.items = newIds.map((id) => dockState.items.find((item) => item.id === id)!);
   }
 
+  // the dock opened from its tab folds back once the mouse has left it for a moment
+  const CLOSE_AFTER_LEAVE_MS = 900;
+  let closeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function onDockPointerEnter() {
+    clearTimeout(closeTimer);
+  }
+
+  function onDockPointerLeave() {
+    if (!dockTab.enabled || !dockTab.open) return;
+    clearTimeout(closeTimer);
+    closeTimer = setTimeout(() => dockTab.close(), CLOSE_AFTER_LEAVE_MS);
+  }
+
+  /** opening an app from the dock folds it back too */
+  function onDockClick(e: MouseEvent) {
+    if (!dockTab.enabled || !dockTab.open) return;
+    if ((e.target as HTMLElement).closest(".weg-item")) {
+      setTimeout(() => dockTab.close(), 250);
+    }
+  }
+
   function handleDragStart() {
     setDockIsDraggingItem(true);
   }
@@ -86,6 +108,7 @@
   }
 </script>
 
+<!-- svelte-ignore a11y_click_events_have_key_events (the click only folds the dock back) -->
 <div
   role="toolbar"
   tabindex="0"
@@ -95,7 +118,11 @@
   class:horizontal={isHorizontal}
   class:vertical={!isHorizontal}
   class:hidden={dockShouldBeHidden.value}
+  class:tab-mode={dockTab.enabled}
   oncontextmenu={onContextMenu}
+  onpointerenter={onDockPointerEnter}
+  onpointerleave={onDockPointerLeave}
+  onclick={onDockClick}
 >
   <BackgroundByLayers />
   <div class="weg-items-container">
@@ -126,3 +153,18 @@
     </DragDropProvider>
   </div>
 </div>
+
+{#if dockTab.enabled}
+  <!-- the tab the dock folds into: press it to open the dock -->
+  <button
+    class="weg-tab {settingsState.position.toLowerCase()}"
+    class:weg-tab-open={dockTab.open}
+    aria-label="Dock"
+    aria-expanded={dockTab.open}
+    onclick={() => dockTab.toggle()}
+    onpointerenter={onDockPointerEnter}
+    onpointerleave={onDockPointerLeave}
+  >
+    <span class="weg-tab-grip"></span>
+  </button>
+{/if}

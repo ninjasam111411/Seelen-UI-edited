@@ -29,6 +29,7 @@ pub fn migrate_settings() {
     migrate_toolbar();
     migrate_dock();
     migrate_dock_full_width();
+    migrate_dock_tab();
 }
 
 fn migrate_toolbar() {
@@ -87,6 +88,27 @@ fn migrate_dock_full_width() {
         });
         FULL_STATE.load().write_settings().log_error();
     }
+    std::fs::write(&marker, b"done").log_error();
+}
+
+/// The dock folds into a small tab at the top (its "always hide" mode): pressing the tab opens it
+/// as a compact, floating dock with bigger icons, and windows get the whole screen below the
+/// toolbar.
+fn migrate_dock_tab() {
+    let marker = SEELEN_COMMON.app_data_dir().join("edited-migrated-dock-tab");
+    if marker.exists() {
+        return;
+    }
+    FULL_STATE.rcu(|state| {
+        let mut state = state.cloned();
+        let weg = &mut state.settings.by_widget.weg;
+        weg.hide_mode = HideMode::Always;
+        weg.mode = SeelenWegMode::MinContent;
+        weg.margin = 8;
+        weg.size = weg.size.max(48);
+        state
+    });
+    FULL_STATE.load().write_settings().log_error();
     std::fs::write(&marker, b"done").log_error();
 }
 
