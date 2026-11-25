@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use seelen_core::system_state::{GameSource, InstalledGame};
+use seelen_core::system_state::{GamepadState, GameSource, InstalledGame};
 
 /// Steam apps that are installed like games but aren't (runtimes, redistributables, tools).
 const STEAM_NON_GAMES: &[&str] = &[
@@ -121,6 +121,9 @@ pub trait GamesSystem: Sized + Send + Sync {
 
     /// Folders where people usually keep games downloaded from websites.
     fn game_folders(&self) -> Vec<PathBuf>;
+
+    /// The first connected game controller.
+    fn gamepad_state(&self) -> Option<GamepadState>;
 }
 
 /// Flattens the quoted `"key" "value"` pairs of a Valve KeyValues (`.vdf` / `.acf`) file,

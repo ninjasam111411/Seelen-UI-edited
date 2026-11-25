@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { convertFileSrc } from "@tauri-apps/api/core";
+  import { imageSrc } from "../image.ts";
   import FileIcon from "libs/ui/svelte/components/Icon/FileIcon.svelte";
   import type { Disc } from "../state.svelte.ts";
 
@@ -19,16 +19,16 @@
 </script>
 
 {#if disc.cover && !failed}
-  <img class="ch-cover-image" src={convertFileSrc(disc.cover)} alt="" draggable="false" onerror={() => (failed = true)} />
+  <img class="ch-cover-image" src={imageSrc(disc.cover)} alt="" draggable="false" onerror={() => (failed = true)} />
 {:else}
   <!-- generated cover for games without art: the game's icon fills the whole square (blown up
        and blurred behind it), tinted with a color from the title, with the name at the bottom -->
   <div class="ch-cover-generated" style:--ch-cover-hue={hue}>
     {#if disc.icon && !iconFailed}
-      <img class="ch-cover-generated-bg" src={convertFileSrc(disc.icon)} alt="" draggable="false" />
+      <img class="ch-cover-generated-bg" src={imageSrc(disc.icon)} alt="" draggable="false" />
       <img
         class="ch-cover-generated-icon"
-        src={convertFileSrc(disc.icon)}
+        src={imageSrc(disc.icon)}
         alt=""
         draggable="false"
         onerror={() => (iconFailed = true)}

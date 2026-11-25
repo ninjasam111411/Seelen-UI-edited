@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 use windows::ApplicationModel::AppInfo;
 use winreg::{
@@ -6,7 +9,19 @@ use winreg::{
     enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE},
 };
 
-use crate::system_modules::games::domain::GamesSystem;
+use seelen_core::system_state::GamepadState;
+use windows::Win32::UI::Input::XboxController::{XINPUT_STATE, XInputGetState};
+
+use crate::{system_modules::games::domain::GamesSystem, utils::lock_free::TracedMutex};
+
+/// XInput supports up to 4 controllers.
+const XUSER_MAX_COUNT: u32 = 4;
+const ERROR_SUCCESS: u32 = 0;
+/// Asking XInput about empty slots is slow, so with no controller it is asked again only
+/// after this long.
+const NO_PAD_RECHECK: Duration = Duration::from_secs(2);
+
+static NEXT_PAD_CHECK: TracedMutex<Option<Instant>> = TracedMutex::new(None);
 
 pub struct WindowsGames;
 
@@ -100,5 +115,23 @@ impl GamesSystem for WindowsGames {
         }
         folders.retain(|f| f.is_dir());
         folders
+    }
+
+    fn gamepad_state(&self) -> Option<GamepadState> {
+        if NEXT_PAD_CHECK.lock().is_some_and(|next| Instant::now() < next) {
+            return None;
+        }
+        let found = (0..XUSER_MAX_COUNT).find_map(|user| {
+            let mut state = XINPUT_STATE::default();
+            // SAFETY: `state` is a valid, writable XINPUT_STATE for the call
+            let result = unsafe { XInputGetState(user, &mut state) };
+            (result == ERROR_SUCCESS).then(|| GamepadState {
+                buttons: state.Gamepad.wButtons.0,
+                left_x: state.Gamepad.sThumbLX,
+                left_y: state.Gamepad.sThumbLY,
+            })
+        });
+        *NEXT_PAD_CHECK.lock() = found.is_none().then(|| Instant::now() + NO_PAD_RECHECK);
+        found
     }
 }

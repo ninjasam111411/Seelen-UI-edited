@@ -8,7 +8,7 @@ use std::{
     sync::LazyLock,
 };
 
-use seelen_core::system_state::{GameSource, InstalledGame};
+use seelen_core::system_state::{GamepadState, GameSource, InstalledGame};
 
 use super::domain::{
     GamesSystem, cemu_args, display_name_from, epic_catalog_art, epic_game, is_game_folder, is_known_game_name,
@@ -92,6 +92,16 @@ impl GamesManager {
 }
 
 impl GamesManager {
+    /// `None` while another app is in front; buttons are empty when no Xbox controller is
+    /// connected (other controllers are read by the webview).
+    pub fn gamepad_state(&self) -> Option<GamepadState> {
+        let front = crate::platform::window::Window::get_foregrounded();
+        if !(front.is_desktop() || front.process().is_seelen()) {
+            return None;
+        }
+        Some(self.platform.gamepad_state().unwrap_or_default())
+    }
+
     /// Store games, known launchers and games downloaded from websites, from the start menu.
     fn scan_start_menu(&self) -> Vec<InstalledGame> {
         StartMenuManager::instance()

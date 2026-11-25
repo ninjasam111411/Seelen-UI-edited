@@ -47,3 +47,16 @@ pub enum GameSource {
     /// games downloaded from a website, found by the files next to their executable
     Local,
 }
+
+/// What the first connected game controller is doing, for navigating the console home.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(feature = "gen-binds", not(feature = "salvo")), derive(ts_rs::TS))]
+#[cfg_attr(all(feature = "gen-binds", not(feature = "salvo")), ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct GamepadState {
+    /// pressed buttons, as XInput flags (A = 0x1000, B = 0x2000, X = 0x4000, Y = 0x8000,
+    /// dpad up/down/left/right = 0x1/0x2/0x4/0x8, start = 0x10, back = 0x20)
+    pub buttons: u16,
+    pub left_x: i16,
+    pub left_y: i16,
+}

@@ -4,6 +4,7 @@ import { lazyRune } from "libs/ui/svelte/utils/LazyRune.svelte.ts";
 import { monitors } from "libs/ui/svelte/runes/monitors.svelte.ts";
 import { get } from "svelte/store";
 import { locale, t } from "./i18n/index.ts";
+import { sounds } from "./sounds.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +33,10 @@ export interface Disc {
   launch: LaunchSpec;
   /** made with the disc maker, so it can be removed */
   burned: boolean;
+  /** pinned to the front of the row */
+  favorite?: boolean;
+  /** hidden from the row (shown only while "show hidden" is on) */
+  hidden?: boolean;
 }
 
 export type DrawerId = "apps" | "desktop" | "documents" | "downloads" | "pictures" | "music" | "videos" | "recent";
@@ -49,6 +54,7 @@ export type Phase = "idle" | "inserting" | "starting";
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const BURNED_STORAGE_KEY = "console-room.burned-discs";
+const CUSTOM_STORAGE_KEY = "console-room.customizations";
 const GAMES_REFRESH_MS = 60_000;
 
 const DRAWER_FOLDERS: Record<Exclude<DrawerId, "apps">, FolderType> = {
@@ -112,7 +118,20 @@ setInterval(async () => {
   }
 }, GAMES_REFRESH_MS);
 
+/** what the user changed about the games: kept in this widget's storage */
+interface Customizations {
+  favorites: string[];
+  hidden: string[];
+  names: Record<string, string>;
+  /** image data urls */
+  covers: Record<string, string>;
+  /** game id -> time it was last started (ms) */
+  lastPlayed: Record<string, number>;
+}
+
 let burned = $state<Disc[]>(loadBurned());
+let custom = $state<Customizations>(loadCustom());
+let showHidden = $state(false);
 let selectedId = $state<string | null>(null);
 let phase = $state<Phase>("idle");
 let playing = $state<Disc | null>(null);
@@ -149,9 +168,29 @@ const gameDiscs = $derived(
   ),
 );
 
-const allDiscs = $derived(
-  [...gameDiscs, ...burned].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" })),
+/** every disc with the user's changes applied, hidden ones included */
+const everyDisc = $derived(
+  [...gameDiscs, ...burned].map((d): Disc => ({
+    ...d,
+    title: custom.names[d.id] ?? d.title,
+    cover: custom.covers[d.id] ?? d.cover,
+    favorite: custom.favorites.includes(d.id),
+    hidden: custom.hidden.includes(d.id),
+  })),
 );
+
+/** like a console: favorites first, then the most recently played, then the rest by name */
+const allDiscs = $derived(
+  everyDisc
+    .filter((d) => showHidden || !d.hidden)
+    .sort((a, b) => {
+      if (a.favorite !== b.favorite) return a.favorite ? -1 : 1;
+      const played = (custom.lastPlayed[b.id] ?? 0) - (custom.lastPlayed[a.id] ?? 0);
+      if (played !== 0) return played;
+      return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+    }),
+);
+const hiddenCount = $derived(everyDisc.filter((d) => d.hidden).length);
 const selected = $derived(allDiscs.find((d) => d.id === selectedId) ?? allDiscs[0] ?? null);
 
 // ─── Window ───────────────────────────────────────────────────────────────────
@@ -186,6 +225,47 @@ function loadBurned(): Disc[] {
   } catch {
     return [];
   }
+}
+
+function loadCustom(): Customizations {
+  const empty: Customizations = { favorites: [], hidden: [], names: {}, covers: {}, lastPlayed: {} };
+  try {
+    const raw = localStorage.getItem(CUSTOM_STORAGE_KEY);
+    return raw ? { ...empty, ...(JSON.parse(raw) as Partial<Customizations>) } : empty;
+  } catch {
+    return empty;
+  }
+}
+
+function saveCustom() {
+  try {
+    localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify($state.snapshot(custom)));
+  } catch (e) {
+    console.error("Could not save game changes", e);
+    showToast(translate("save_failed"));
+  }
+}
+
+function toggleIn(list: string[], id: string): string[] {
+  return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+}
+
+/** shrinks a picture the user picked to a small square jpeg, so it fits in the widget storage */
+async function fileToCover(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const size = 480;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("no canvas");
+  // fills the square like the tiles do (centered crop)
+  const scale = Math.max(size / bitmap.width, size / bitmap.height);
+  const w = bitmap.width * scale;
+  const h = bitmap.height * scale;
+  ctx.drawImage(bitmap, (size - w) / 2, (size - h) / 2, w, h);
+  bitmap.close();
+  return canvas.toDataURL("image/jpeg", 0.85);
 }
 
 function saveBurned() {
@@ -276,9 +356,13 @@ async function play(disc: Disc, withInsert = false) {
 
   if (withInsert) {
     phase = "inserting";
+    sounds.insert();
     await wait(600);
   }
   phase = "starting";
+  sounds.start();
+  custom.lastPlayed[disc.id] = Date.now();
+  saveCustom();
   try {
     await runLaunch(disc.launch);
   } catch (e) {
@@ -432,8 +516,62 @@ class ConsoleHomeState {
     return dropTarget;
   }
 
-  select = (id: string) => (selectedId = id);
-  openMenu = () => (menuOpen = true);
+  get hiddenCount() {
+    return hiddenCount;
+  }
+  get showHidden() {
+    return showHidden;
+  }
+
+  select = (id: string) => {
+    if (selectedId !== id) sounds.move();
+    selectedId = id;
+  };
+  /** moves the selection by `step` games along the row */
+  selectBy = (step: number) => {
+    if (allDiscs.length === 0) return;
+    const index = Math.max(
+      0,
+      allDiscs.findIndex((d) => d.id === selected?.id),
+    );
+    const next = allDiscs[Math.min(allDiscs.length - 1, Math.max(0, index + step))];
+    if (next) this.select(next.id);
+  };
+  toggleFavorite = (id: string) => {
+    custom.favorites = toggleIn(custom.favorites, id);
+    saveCustom();
+    sounds.select();
+  };
+  toggleHidden = (id: string) => {
+    custom.hidden = toggleIn(custom.hidden, id);
+    saveCustom();
+    sounds.select();
+  };
+  setShowHidden = (value: boolean) => (showHidden = value);
+  rename = (id: string, name: string) => {
+    const trimmed = name.trim();
+    if (trimmed) custom.names[id] = trimmed;
+    else delete custom.names[id];
+    saveCustom();
+  };
+  setCover = async (id: string, file: File) => {
+    try {
+      custom.covers[id] = await fileToCover(file);
+      saveCustom();
+    } catch (e) {
+      console.error(e);
+      showToast(translate("cover_failed"));
+    }
+  };
+  resetCustom = (id: string) => {
+    delete custom.names[id];
+    delete custom.covers[id];
+    saveCustom();
+  };
+  hasCustom = (id: string) => id in custom.names || id in custom.covers;
+  openMenu = () => {
+    menuOpen = true;
+  };
   closeMenu = () => {
     menuOpen = false;
     libraryOpen = false;

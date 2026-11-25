@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { convertFileSrc } from "@tauri-apps/api/core";
+  import { imageSrc } from "../image.ts";
   import FileIcon from "libs/ui/svelte/components/Icon/FileIcon.svelte";
 
   interface Props {
@@ -18,7 +18,7 @@
 <div class="cr-disc-face" class:cr-disc-spinning={spinning}>
   <div class="cr-disc-label">
     {#if cover && !coverFailed}
-      <img class="cr-disc-cover" src={convertFileSrc(cover)} alt="" draggable="false" onerror={() => (coverFailed = true)} />
+      <img class="cr-disc-cover" src={imageSrc(cover)} alt="" draggable="false" onerror={() => (coverFailed = true)} />
     {:else}
       <FileIcon class="cr-disc-icon" path={iconPath} umid={iconUmid} draggable="false" />
     {/if}

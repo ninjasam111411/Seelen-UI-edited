@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke, SeelenCommand, Widget } from "@seelen-ui/lib";
-  import { convertFileSrc } from "@tauri-apps/api/core";
+  import { imageSrc } from "./image.ts";
   import FileIcon from "libs/ui/svelte/components/Icon/FileIcon.svelte";
   import { monitors } from "libs/ui/svelte/runes/monitors.svelte.ts";
   import { t } from "./i18n/index.ts";
@@ -9,6 +9,8 @@
   import DiscFace from "./components/DiscFace.svelte";
   import GameCover from "./components/GameCover.svelte";
   import RoomScene from "./components/RoomScene.svelte";
+  import { sounds } from "./sounds.ts";
+  import { startController, type PadButton } from "./controller.svelte.ts";
 
   onMount(() => {
     Widget.getCurrent().ready();
@@ -55,6 +57,7 @@
   function turnOn() {
     if (roomZoomed) return;
     roomZoomed = true;
+    sounds.boot();
     setTimeout(() => home.openMenu(), 650);
   }
 
@@ -71,20 +74,111 @@
 
   // only the "Back to room" button leaves the menu; Esc closes the library, arrows pick a game
   function onKeyDown(e: KeyboardEvent) {
-    if (e.key === "Escape" && home.libraryOpen) {
-      home.closeLibrary();
+    if (e.key === "Escape") {
+      if (menu) menu = null;
+      else if (home.libraryOpen) home.closeLibrary();
       return;
     }
     if (!home.menuOpen || home.libraryOpen || home.phase !== "idle") return;
-    const list = home.discs;
-    if (list.length === 0) return;
-    const index = Math.max(
-      0,
-      list.findIndex((d) => d.id === home.selected?.id),
-    );
-    if (e.key === "ArrowRight") home.select(list[Math.min(list.length - 1, index + 1)]!.id);
-    else if (e.key === "ArrowLeft") home.select(list[Math.max(0, index - 1)]!.id);
+    if (e.key === "ArrowRight") home.selectBy(1);
+    else if (e.key === "ArrowLeft") home.selectBy(-1);
     else if (e.key === "Enter" && home.selected) home.play(home.selected);
+  }
+
+  function backToRoom() {
+    menu = null;
+    sounds.back();
+    home.closeMenu();
+  }
+
+  function openLibrary() {
+    menu = null;
+    sounds.select();
+    home.openLibrary();
+  }
+
+  // a game controller works like a console's: A plays, Y opens the library, X favorites,
+  // View goes back to the room, B closes what is open
+  function onPad(button: PadButton) {
+    if (home.phase !== "idle") return;
+    if (!home.menuOpen) {
+      if (button === "a" || button === "start") turnOn();
+      return;
+    }
+    if (menu) {
+      if (button === "b") menu = null;
+      return;
+    }
+    if (home.libraryOpen) {
+      if (button === "b" || button === "y") {
+        sounds.back();
+        home.closeLibrary();
+      }
+      return;
+    }
+    switch (button) {
+      case "left":
+        home.selectBy(-1);
+        break;
+      case "right":
+        home.selectBy(1);
+        break;
+      case "a":
+        if (home.selected) home.play(home.selected);
+        break;
+      case "y":
+        openLibrary();
+        break;
+      case "x":
+        if (home.selected) home.toggleFavorite(home.selected.id);
+        break;
+      case "back":
+        backToRoom();
+        break;
+    }
+  }
+  onMount(() => startController(onPad));
+
+  // ─── right-click menu of a game ────────────────────────────────────────────
+  let menu = $state<{ disc: Disc; x: number; y: number; renaming: boolean; name: string } | null>(null);
+  let coverInput: HTMLInputElement | undefined = $state();
+
+  function openGameMenu(e: MouseEvent, disc: Disc) {
+    e.preventDefault();
+    home.select(disc.id);
+    menu = {
+      disc,
+      x: Math.min(e.clientX, window.innerWidth - 300),
+      y: Math.min(e.clientY, window.innerHeight - 320),
+      renaming: false,
+      name: disc.title,
+    };
+  }
+
+  function onWindowPointerDown(e: PointerEvent) {
+    if (menu && !(e.target as HTMLElement).closest(".ch-game-menu")) menu = null;
+  }
+
+  // a desktop background can't take the keyboard, so it is allowed only while renaming a game
+  let typing = false;
+  $effect(() => {
+    const renaming = !!menu?.renaming;
+    if (renaming === typing) return;
+    typing = renaming;
+    const win = Widget.self.window;
+    if (renaming) {
+      win.setFocusable(true).then(() => Widget.self.focus()).catch(console.error);
+    } else {
+      win.setFocusable(false).catch(console.error);
+    }
+  });
+
+  function onCoverPicked(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file && menu) home.setCover(menu.disc.id, file);
+    input.value = "";
+    menu = null;
   }
 
   /** clock in the corner, like a console */
@@ -170,7 +264,12 @@
   });
 </script>
 
-<svelte:window onpointermove={onPointerMove} onpointerup={onPointerUp} onkeydown={onKeyDown} />
+<svelte:window
+  onpointermove={onPointerMove}
+  onpointerup={onPointerUp}
+  onpointerdown={onWindowPointerDown}
+  onkeydown={onKeyDown}
+/>
 
 <div
   class="ch-home"
@@ -195,7 +294,7 @@
         <img
           class="ch-art-image"
           class:ch-art-portrait={!art.wide}
-          src={convertFileSrc(art.path)}
+          src={imageSrc(art.path)}
           alt=""
           draggable="false"
           onerror={() => art && (failedArt[art.path] = true)}
@@ -213,6 +312,11 @@
     <header class="ch-header">
       <span class="ch-header-tab ch-header-tab-active">{$t("games")}</span>
       <span class="ch-header-count">{home.discs.length}</span>
+      {#if home.hiddenCount > 0}
+        <button class="ch-header-chip" onclick={() => home.setShowHidden(!home.showHidden)}>
+          {home.showHidden ? $t("hide_hidden") : $t("hidden_count", { 0: String(home.hiddenCount) })}
+        </button>
+      {/if}
       <div class="ch-spacer"></div>
       <span class="ch-clock">{clock}</span>
     </header>
@@ -231,12 +335,19 @@
                 class="ch-tile"
                 class:ch-tile-selected={isSelected}
                 class:ch-tile-held={home.dragging?.disc?.id === disc.id}
+                class:ch-tile-hidden={disc.hidden}
                 data-disc-id={disc.id}
                 aria-label={disc.title}
                 onpointerdown={(e) => onTilePointerDown(e, disc)}
                 ondblclick={() => home.play(disc)}
+                oncontextmenu={(e) => openGameMenu(e, disc)}
               >
-                <GameCover {disc} />
+                {#key disc.cover}
+                  <GameCover {disc} />
+                {/key}
+                {#if disc.favorite}
+                  <span class="ch-tile-star" aria-hidden="true">★</span>
+                {/if}
               </button>
               {#if isSelected}
                 <span class="ch-tile-name">{disc.title}</span>
@@ -255,7 +366,7 @@
           {#if game.logo && !failedLogo[game.logo]}
             <img
               class="ch-logo"
-              src={convertFileSrc(game.logo)}
+              src={imageSrc(game.logo)}
               alt={game.title}
               draggable="false"
               onerror={() => game.logo && (failedLogo[game.logo] = true)}
@@ -267,7 +378,7 @@
             <span class="ch-meta-icon">
               {#if game.icon && !failedIcon[game.icon]}
                 <img
-                  src={convertFileSrc(game.icon)}
+                  src={imageSrc(game.icon)}
                   alt=""
                   draggable="false"
                   onerror={() => game.icon && (failedIcon[game.icon] = true)}
@@ -297,13 +408,13 @@
 
     <!-- bottom: back to the room, library, disc maker and console -->
     <section class="ch-bottom">
-      <button class="ch-library-button" onclick={() => home.closeMenu()}>
+      <button class="ch-library-button" onclick={backToRoom}>
         <svg class="ch-library-icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 3v9" /><path d="M6.3 6.8a8 8 0 1 0 11.4 0" />
         </svg>
         {$t("power_off")}
       </button>
-      <button class="ch-library-button" onclick={() => home.openLibrary()}>
+      <button class="ch-library-button" onclick={openLibrary}>
         <svg class="ch-library-icon" viewBox="0 0 24 24" aria-hidden="true">
           <rect x="4" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" />
           <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" />
@@ -407,6 +518,67 @@
         />
       </div>
       <div class="ch-starting-text">{$t("starting", { 0: home.playing.title })}</div>
+    </div>
+  {/if}
+
+  <!-- right-click menu of a game -->
+  <input
+    class="ch-cover-input"
+    type="file"
+    accept="image/*"
+    bind:this={coverInput}
+    onchange={onCoverPicked}
+  />
+  {#if menu}
+    {@const disc = menu.disc}
+    <div class="ch-game-menu" style:left={menu.x + "px"} style:top={menu.y + "px"} role="menu" tabindex="-1">
+      <div class="ch-game-menu-title">{disc.title}</div>
+      {#if menu.renaming}
+        <form
+          class="ch-game-menu-rename"
+          onsubmit={(e) => {
+            e.preventDefault();
+            if (menu) home.rename(disc.id, menu.name);
+            menu = null;
+          }}
+        >
+          <!-- svelte-ignore a11y_autofocus -->
+          <input class="ch-game-menu-input" bind:value={menu.name} autofocus />
+          <button class="ch-small-play" type="submit">{$t("rename_save")}</button>
+        </form>
+      {:else}
+        <button
+          class="ch-game-menu-item"
+          onclick={() => {
+            home.toggleFavorite(disc.id);
+            menu = null;
+          }}
+        >
+          {disc.favorite ? "☆ " + $t("unfavorite") : "★ " + $t("favorite")}
+        </button>
+        <button class="ch-game-menu-item" onclick={() => menu && (menu.renaming = true)}>✎ {$t("rename")}</button>
+        <button class="ch-game-menu-item" onclick={() => coverInput?.click()}>🖼 {$t("choose_cover")}</button>
+        {#if home.hasCustom(disc.id)}
+          <button
+            class="ch-game-menu-item"
+            onclick={() => {
+              home.resetCustom(disc.id);
+              menu = null;
+            }}
+          >
+            ↺ {$t("reset_custom")}
+          </button>
+        {/if}
+        <button
+          class="ch-game-menu-item"
+          onclick={() => {
+            home.toggleHidden(disc.id);
+            menu = null;
+          }}
+        >
+          {disc.hidden ? "👁 " + $t("unhide") : "⊘ " + $t("hide")}
+        </button>
+      {/if}
     </div>
   {/if}
 

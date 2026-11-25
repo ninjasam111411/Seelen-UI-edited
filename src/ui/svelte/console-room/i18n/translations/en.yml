@@ -31,3 +31,16 @@ drawers:
   music: Music
   videos: Videos
   recent: Recent
+favorite: Add to favorites
+unfavorite: Remove from favorites
+rename: Rename
+rename_save: Save
+choose_cover: Choose cover picture…
+reset_custom: Use the original name and cover
+hide: Hide game
+unhide: Show game again
+hidden_count: "{{0}} hidden"
+hide_hidden: Hide hidden games
+save_failed: Couldn't save your changes
+cover_failed: Couldn't use that picture
+controller_hint: "Controller: A play · Y library · X favorite · View back to room"
