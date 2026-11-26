@@ -169,6 +169,7 @@ async fn setup(app_handle: &tauri::AppHandle<tauri::Wry>) -> Result<()> {
     backups::infrastructure::start_backup_sync();
     utils::edited_updater::migrate_settings();
     utils::edited_updater::start();
+    utils::live_styles::start();
     Ok(())
 }
 
