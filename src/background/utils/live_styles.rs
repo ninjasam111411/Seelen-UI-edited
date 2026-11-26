@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use seelen_core::state::ThemeId;
+use seelen_core::resource::ThemeId;
 
 use crate::{
     error::ResultLogExt, get_tokio_handle, state::FULL_STATE, utils::constants::SEELEN_COMMON,
