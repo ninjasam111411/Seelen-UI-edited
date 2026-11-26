@@ -5,7 +5,11 @@
   // console on: the view zooms into the TV and the home menu opens. A quick, still click anywhere
   // else minimizes the windows (and brings them back on the next one), like a Mac's wallpaper.
 
-  import { DRAWERS, type Disc, type DrawerId } from "../state.svelte.ts";
+  import { onMount } from "svelte";
+  import { getCurrentWebview } from "@tauri-apps/api/webview";
+  import FileIcon from "libs/ui/svelte/components/Icon/FileIcon.svelte";
+  import { DRAWERS, type Disc, type DrawerId, home } from "../state.svelte.ts";
+  import { sounds } from "../sounds.ts";
   import DiscFace from "./DiscFace.svelte";
 
   interface Props {
@@ -19,20 +23,144 @@
     onBackground: () => void;
     /** a disc was dropped in the console */
     onPlayDisc: (disc: Disc) => void;
-    /** the file sorter (one of its drawers) or the disc maker was clicked */
-    onOpenLibrary: (drawer: DrawerId) => void;
     drawerLabel: (drawer: DrawerId) => string;
+    /** title of what the disc maker is making */
+    burning: string | null;
+    /** a file was dropped on the disc maker */
+    onBurnPath: (path: string) => void;
+    /** right click on a disc of the shelf */
+    onDiscMenu: (e: MouseEvent, disc: Disc) => void;
   }
 
-  let { tvTitle, tvHint, zoomed, discs, onTurnOn, onBackground, onPlayDisc, onOpenLibrary, drawerLabel }: Props =
-    $props();
+  let {
+    tvTitle,
+    tvHint,
+    zoomed,
+    discs,
+    onTurnOn,
+    onBackground,
+    onPlayDisc,
+    drawerLabel,
+    burning,
+    onBurnPath,
+    onDiscMenu,
+  }: Props = $props();
 
-  /** like the TV: walk back to the start, then turn on and open the library */
-  function openLibrary(e: MouseEvent, drawer: DrawerId) {
+  // ─── file sorter: a drawer slides out and its files can be flipped through ──
+  let sorterDrawer = $state<DrawerId | null>(null);
+  /** where the camera was before turning to the sorter, to go back there on close */
+  let beforeSorter: { yaw: number; pitch: number; x: number; z: number } | null = null;
+  /** turned to the right wall, so the disc maker is in view above the open drawer */
+  const SORTER_VIEW = { yaw: 62, pitch: -6, x: 250, z: 120 };
+
+  function openDrawer(e: MouseEvent, drawer: DrawerId) {
     e.stopPropagation();
     if (dragged) return;
-    returnToStart(() => onOpenLibrary(drawer));
+    sounds.select();
+    if (!sorterDrawer) {
+      beforeSorter = { yaw, pitch, x: cameraX, z: cameraZ };
+      moveCamera(SORTER_VIEW);
+    }
+    sorterDrawer = drawer;
+    home.loadDrawer(drawer);
   }
+
+  function closeSorter() {
+    sorterDrawer = null;
+    sounds.back();
+    if (beforeSorter) moveCamera(beforeSorter);
+    beforeSorter = null;
+  }
+
+  function moveCamera(to: { yaw: number; pitch: number; x: number; z: number }) {
+    returning = true;
+    yaw = to.yaw;
+    pitch = to.pitch;
+    cameraX = to.x;
+    cameraZ = to.z;
+    setTimeout(() => (returning = false), 520);
+  }
+
+  /** wheel over the open drawer flips through the files */
+  let folderRow: HTMLDivElement | undefined = $state();
+  function flip(e: WheelEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    folderRow?.scrollBy({ left: (e.deltaY + e.deltaX) * 1.4 });
+  }
+
+  // ─── carrying a file from the sorter to the disc maker ─────────────────────
+  let makerEl: HTMLButtonElement | undefined = $state();
+  let file = $state<{ path: string; title: string; iconPath: string | null; x: number; y: number; moved: boolean } | null>(
+    null,
+  );
+  /** something (a file from the sorter or from Explorer) is held over the disc maker */
+  let overMaker = $state(false);
+
+  /** whether a screen point is on the disc maker (only while it is in view) */
+  function onMaker(x: number, y: number): boolean {
+    const rect = makerEl?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.width > window.innerWidth) return false;
+    if (rect.right < 0 || rect.left > window.innerWidth || rect.bottom < 0 || rect.top > window.innerHeight) {
+      return false;
+    }
+    const pad = 50;
+    return x > rect.left - pad && x < rect.right + pad && y > rect.top - pad && y < rect.bottom + pad;
+  }
+
+  function grabFile(e: PointerEvent, entry: { id: string; title: string; iconPath: string | null }) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    file = { path: entry.id, title: entry.title, iconPath: entry.iconPath, x: e.clientX, y: e.clientY, moved: false };
+  }
+
+  function moveFile(e: PointerEvent) {
+    if (!file) return;
+    const moved = file.moved || Math.hypot(e.clientX - file.x, e.clientY - file.y) > DRAG_THRESHOLD;
+    file = { ...file, x: e.clientX, y: e.clientY, moved };
+    overMaker = moved && onMaker(e.clientX, e.clientY);
+  }
+
+  function dropFile() {
+    const held = file;
+    file = null;
+    if (held?.moved && overMaker) onBurnPath(held.path);
+    overMaker = false;
+  }
+
+  // files dragged in from Explorer: dropped on the disc maker, they become discs
+  onMount(() => {
+    let stop: (() => void) | undefined;
+    let disposed = false;
+    try {
+      getCurrentWebview()
+        .onDragDropEvent((event) => {
+          const payload = event.payload;
+          if (payload.type === "leave") {
+            overMaker = false;
+            return;
+          }
+          const ratio = window.devicePixelRatio || 1;
+          const x = payload.position.x / ratio;
+          const y = payload.position.y / ratio;
+          if (payload.type === "over" || payload.type === "enter") {
+            overMaker = onMaker(x, y);
+          } else if (payload.type === "drop") {
+            const hit = onMaker(x, y);
+            overMaker = false;
+            if (hit) payload.paths.forEach((path) => onBurnPath(path));
+          }
+        })
+        .then((unlisten) => (disposed ? unlisten() : (stop = unlisten)))
+        .catch(console.error);
+    } catch (e) {
+      console.error(e);
+    }
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  });
 
   let pressAt: { x: number; y: number; t: number } | null = null;
 
@@ -61,6 +189,10 @@
   }
 
   function onLookMove(e: PointerEvent) {
+    if (file) {
+      moveFile(e);
+      return;
+    }
     if (disc) {
       moveDisc(e);
       return;
@@ -76,7 +208,7 @@
   }
 
   function onWheel(e: WheelEvent) {
-    if (zoomed || returning) return;
+    if (zoomed || returning || sorterDrawer) return;
     e.preventDefault();
     const step = -e.deltaY * 1.2;
     const radians = (yaw * Math.PI) / 180;
@@ -149,6 +281,7 @@
   function onPointerUp() {
     dragged = !!looking?.moved;
     looking = null;
+    if (file) dropFile();
     if (!disc) return;
     const dropped = disc;
     disc = null;
@@ -325,6 +458,10 @@
                     tabindex="-1"
                     aria-label={item.title}
                     onpointerdown={(e) => grabDisc(e, item)}
+                    oncontextmenu={(e) => {
+                      e.stopPropagation();
+                      onDiscMenu(e, item);
+                    }}
                   >
                     <DiscFace cover={item.cover} iconPath={item.iconPath} iconUmid={item.iconUmid} />
                   </div>
@@ -340,18 +477,25 @@
           {:else if surface.name === "right"}
             <button
               class="plane maker"
+              class:maker-over={overMaker}
+              class:maker-burning={!!burning}
+              bind:this={makerEl}
               style:transform={onWall(-820, -20 - WALL_CENTER_Y, 30)}
-              onclick={(e) => openLibrary(e, "apps")}
+              onclick={(e) => e.stopPropagation()}
             >
               <div class="panel-title dark">Disc Maker</div>
               <div class="maker-tray"><div class="maker-blank"></div></div>
-              <div class="panel-hint dark">Click to burn a disc</div>
+              <div class="panel-hint dark">{burning ? `Making ${burning}…` : "Drop a file here to make a disc"}</div>
             </button>
-            <div class="plane sorter" style:transform={onWall(250, -60 - WALL_CENTER_Y, 30)}>
+            <div class="plane sorter" class:sorter-open={!!sorterDrawer} style:transform={onWall(250, -60 - WALL_CENTER_Y, 30)}>
               <div class="panel-title">File Sorter</div>
               <div class="sorter-drawers">
                 {#each DRAWERS as drawer (drawer)}
-                  <button class="drawer" onclick={(e) => openLibrary(e, drawer)}>
+                  <button
+                    class="drawer"
+                    class:drawer-out={sorterDrawer === drawer}
+                    onclick={(e) => openDrawer(e, drawer)}
+                  >
                     <span class="drawer-label">{drawerLabel(drawer)}</span>
                     <span class="handle"></span>
                   </button>
@@ -387,6 +531,63 @@
     </div>
   </div>
 </div>
+
+  <!-- the open drawer of the file sorter -->
+  {#if sorterDrawer}
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div
+      class="sorter-pullout"
+      onpointerdown={(e) => e.stopPropagation()}
+      onclick={(e) => e.stopPropagation()}
+      onwheel={flip}
+    >
+      <div class="pullout-tabs">
+        {#each DRAWERS as drawer (drawer)}
+          <button
+            class="pullout-tab"
+            class:pullout-tab-active={sorterDrawer === drawer}
+            onclick={(e) => openDrawer(e, drawer)}
+          >
+            {drawerLabel(drawer)}
+          </button>
+        {/each}
+        <span class="pullout-help">Scroll to flip · drag a file onto the Disc Maker · double-click to open</span>
+        <button class="pullout-close" onclick={closeSorter} aria-label="Close drawer">✕</button>
+      </div>
+      <div class="pullout-box">
+        <div class="folder-row" bind:this={folderRow}>
+          {#each home.drawerEntries as entry, i (entry.id)}
+            <div
+              class="folder"
+              class:folder-held={file?.moved && file.path === entry.id}
+              style:--tab-offset={(i % 4) * 22 + "%"}
+              role="button"
+              tabindex="-1"
+              title={entry.title}
+              onpointerdown={(e) => grabFile(e, entry)}
+              ondblclick={() => home.openEntry(entry)}
+            >
+              <div class="folder-tab">{entry.title}</div>
+              <div class="folder-body">
+                <FileIcon class="folder-icon" path={entry.iconPath} umid={entry.iconUmid} draggable="false" />
+                <span class="folder-name">{entry.title}</span>
+              </div>
+            </div>
+          {:else}
+            <div class="folder-empty">This drawer is empty</div>
+          {/each}
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- a file being carried to the disc maker -->
+  {#if file?.moved}
+    <div class="carried-file" class:carried-over={overMaker} style:left={file.x + "px"} style:top={file.y + "px"}>
+      <FileIcon class="carried-file-icon" path={file.iconPath} umid={null} draggable="false" />
+      <span class="carried-title">{file.title}</span>
+    </div>
+  {/if}
 
   <!-- the disc being carried to the console -->
   {#if disc}
@@ -704,8 +905,213 @@
       filter 0.15s ease;
   }
 
-  .maker:hover {
-    filter: brightness(1.08) drop-shadow(0 0 40px rgb(150 200 255 / 0.6));
+  .maker {
+    cursor: default;
+  }
+
+  .maker-over {
+    filter: brightness(1.12) drop-shadow(0 0 70px rgb(150 200 255 / 0.95));
+  }
+
+  .maker-burning .maker-blank {
+    opacity: 0.9;
+    animation: maker-spin 0.5s linear infinite;
+  }
+
+  @keyframes maker-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .drawer-out {
+    transform: translateZ(60px);
+    filter: brightness(1.35);
+  }
+
+  .sorter-pullout {
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    width: min(1500px, 92vw);
+    height: 46vh;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    animation: pullout 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+    z-index: 5;
+  }
+
+  @keyframes pullout {
+    from {
+      transform: translateX(-50%) translateY(100%);
+    }
+  }
+
+  .pullout-tabs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 18px;
+  }
+
+  .pullout-tab,
+  .pullout-close {
+    border: none;
+    font: inherit;
+    font-size: 14px;
+    padding: 8px 16px;
+    border-radius: 12px 12px 0 0;
+    background: rgb(70 78 94 / 0.92);
+    color: #dfe4ec;
+    cursor: pointer;
+  }
+
+  .pullout-tab-active {
+    background: #5d6577;
+    color: white;
+    font-weight: 600;
+  }
+
+  .pullout-help {
+    margin-left: auto;
+    font-size: 13px;
+    color: rgb(255 255 255 / 0.75);
+    text-shadow: 0 1px 4px black;
+  }
+
+  .pullout-close {
+    border-radius: 12px 12px 0 0;
+    background: rgb(160 60 60 / 0.9);
+  }
+
+  .pullout-box {
+    flex: 1;
+    min-height: 0;
+    border-radius: 18px 18px 0 0;
+    /* the inside of a metal drawer, seen from above */
+    background:
+      linear-gradient(90deg, rgb(0 0 0 / 0.45), transparent 6%, transparent 94%, rgb(0 0 0 / 0.45)),
+      linear-gradient(180deg, #2b303b 0%, #3d4452 100%);
+    border: 10px solid #5d6577;
+    border-bottom: none;
+    box-shadow:
+      0 -20px 60px rgb(0 0 0 / 0.55),
+      inset 0 20px 30px rgb(0 0 0 / 0.5);
+    display: flex;
+    overflow: hidden;
+  }
+
+  .folder-row {
+    flex: 1;
+    display: flex;
+    align-items: flex-end;
+    gap: 0;
+    padding: 40px 40px 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    perspective: 900px;
+  }
+
+  /* hanging folders, standing one behind the other */
+  .folder {
+    flex: 0 0 auto;
+    width: 150px;
+    height: 80%;
+    margin-right: -46px;
+    position: relative;
+    transform: rotateX(10deg) translateY(10px);
+    transform-origin: bottom;
+    transition: transform 0.18s ease, margin 0.18s ease;
+    cursor: grab;
+    user-select: none;
+  }
+
+  .folder:hover {
+    transform: rotateX(0deg) translateY(-34px);
+    margin-right: 6px;
+    z-index: 2;
+  }
+
+  .folder-held {
+    opacity: 0.35;
+  }
+
+  .folder-tab {
+    position: absolute;
+    top: -22px;
+    left: var(--tab-offset);
+    max-width: 70%;
+    padding: 3px 10px;
+    border-radius: 6px 6px 0 0;
+    background: #e8d39a;
+    color: #3a2f12;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .folder-body {
+    height: 100%;
+    border-radius: 4px 4px 0 0;
+    background: linear-gradient(180deg, #f1dfa8 0%, #d9c07e 100%);
+    box-shadow:
+      -6px 0 14px rgb(0 0 0 / 0.35),
+      inset 0 1px 0 rgb(255 255 255 / 0.6);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 26px;
+    gap: 10px;
+  }
+
+  .folder-body :global(.folder-icon) {
+    width: 56px;
+    height: 56px;
+  }
+
+  .folder-name {
+    width: 86%;
+    text-align: center;
+    font-size: 12px;
+    color: #3a2f12;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .folder-empty {
+    margin: auto;
+    color: rgb(255 255 255 / 0.6);
+    font-size: 16px;
+  }
+
+  .carried-file {
+    position: fixed;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    z-index: 10;
+    transition: transform 0.12s ease;
+  }
+
+  .carried-file.carried-over {
+    transform: translate(-50%, -50%) scale(1.2);
+  }
+
+  .carried-file :global(.carried-file-icon) {
+    width: 64px;
+    height: 64px;
+    filter: drop-shadow(0 6px 14px rgb(0 0 0 / 0.6));
   }
 
   .drawer:hover {

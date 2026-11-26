@@ -33,6 +33,8 @@ export interface Disc {
   launch: LaunchSpec;
   /** made with the disc maker, so it can be removed */
   burned: boolean;
+  /** a made disc moved to the Media tab */
+  shelf?: "games" | "media";
   /** pinned to the front of the row */
   favorite?: boolean;
   /** hidden from the row (shown only while "show hidden" is on) */
@@ -279,13 +281,18 @@ function consoleOrder(a: Disc, b: Disc): number {
 }
 
 /** every disc of the open tab with the user's changes applied, hidden ones included */
-const everyDisc = $derived(customized(tab === "media" ? mediaDiscs : [...gameDiscs, ...burned]));
+const gameBurned = $derived(burned.filter((d) => d.shelf !== "media"));
+const mediaBurned = $derived(burned.filter((d) => d.shelf === "media"));
+
+const everyDisc = $derived(
+  customized(tab === "media" ? [...mediaDiscs, ...mediaBurned] : [...gameDiscs, ...gameBurned]),
+);
 
 const allDiscs = $derived(everyDisc.filter((d) => showHidden || !d.hidden).sort(consoleOrder));
 
 /** the games for the room's shelf, whatever tab the menu was left on */
 const shelfGames = $derived(
-  customized([...gameDiscs, ...burned])
+  customized([...gameDiscs, ...gameBurned])
     .filter((d) => !d.hidden)
     .sort(consoleOrder),
 );
@@ -520,13 +527,36 @@ async function burn(entry: LibraryEntry) {
   }
 
   burning = entry.title;
+  sounds.insert();
   await wait(1300);
   const disc: Disc = { ...entryToDisc(entry), id: `burned:${crypto.randomUUID()}`, burned: true };
   burned.push(disc);
   saveBurned();
+  // a new disc goes to the front of the shelf, where it can be seen
+  custom.lastPlayed[disc.id] = Date.now();
+  saveCustom();
   burning = null;
+  sounds.start();
   selectedId = disc.id;
   showToast(translate("burned", { 0: entry.title }));
+}
+
+/** a file or folder dropped on the disc maker (from the file sorter or from Explorer) */
+function burnPath(path: string) {
+  return burn({
+    id: path,
+    title: fileName(path).replace(/\.[a-z0-9]{1,5}$/i, "") || fileName(path),
+    iconPath: path,
+    iconUmid: null,
+    launch: { type: "file", path },
+  });
+}
+
+function moveDisc(id: string, shelf: "games" | "media") {
+  burned = burned.map((d) => (d.id === id ? { ...d, shelf } : d));
+  saveBurned();
+  showToast(translate(shelf === "media" ? "moved_to_media" : "moved_to_games"));
+  sounds.select();
 }
 
 function removeDisc(id: string) {
@@ -729,6 +759,8 @@ class ConsoleHomeState {
   };
   play = play;
   burn = burn;
+  burnPath = burnPath;
+  moveDisc = moveDisc;
   removeDisc = removeDisc;
   openLibrary = openLibrary;
   closeLibrary = () => (libraryOpen = false);

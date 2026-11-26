@@ -50,3 +50,7 @@ no_media: No media apps found. Open the Library, go to Apps and press "Add to Me
 add_to_media: Add to Media
 added_to_media: "{{0}} added to Media"
 remove_from_media: Remove from Media
+moved_to_media: Moved to Media
+moved_to_games: Moved to Games
+move_to_media: Move to Media
+move_to_games: Move to Games

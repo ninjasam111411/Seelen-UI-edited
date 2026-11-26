@@ -5,7 +5,7 @@
   import FileIcon from "libs/ui/svelte/components/Icon/FileIcon.svelte";
   import { monitors } from "libs/ui/svelte/runes/monitors.svelte.ts";
   import { t } from "./i18n/index.ts";
-  import { DRAWERS, type Disc, type DrawerId, home } from "./state.svelte.ts";
+  import { DRAWERS, type Disc, home } from "./state.svelte.ts";
   import DiscFace from "./components/DiscFace.svelte";
   import GameCover from "./components/GameCover.svelte";
   import RoomScene from "./components/RoomScene.svelte";
@@ -64,10 +64,6 @@
     }, 650);
   }
 
-  /** the file sorter and disc maker in the room open the library (a drawer of it) on the TV */
-  function openFromRoom(drawer: DrawerId) {
-    turnOn(() => home.openLibrary(drawer));
-  }
 
   // leaving the menu shows the room still zoomed into the TV, then zooms back out
   let wasMenuOpen = false;
@@ -299,8 +295,10 @@
       zoomed={roomZoomed}
       discs={home.gameDiscs}
       onTurnOn={() => turnOn()}
-      onOpenLibrary={openFromRoom}
       drawerLabel={(drawer) => $t(`drawers.${drawer}`)}
+      burning={home.burning}
+      onBurnPath={(path) => home.burnPath(path)}
+      onDiscMenu={openGameMenu}
       onBackground={toggleWindows}
       onPlayDisc={(disc) => home.play(disc, true)}
     />
@@ -607,6 +605,26 @@
             }}
           >
             ✕ {$t("remove_from_media")}
+          </button>
+        {/if}
+        {#if disc.burned}
+          <button
+            class="ch-game-menu-item"
+            onclick={() => {
+              home.moveDisc(disc.id, disc.shelf === "media" ? "games" : "media");
+              menu = null;
+            }}
+          >
+            ⇄ {disc.shelf === "media" ? $t("move_to_games") : $t("move_to_media")}
+          </button>
+          <button
+            class="ch-game-menu-item"
+            onclick={() => {
+              home.removeDisc(disc.id);
+              menu = null;
+            }}
+          >
+            ✕ {$t("remove_disc")}
           </button>
         {/if}
         {#if home.hasCustom(disc.id)}
