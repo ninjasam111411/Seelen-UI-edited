@@ -93,7 +93,8 @@ $glass-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/sv
   .ft-bar-right {
     position: relative;
     align-self: start;
-    height: calc(100% + var(--config-margin)) !important;
+    // the whole height of the toolbar's strip, top to bottom
+    height: 100vh !important;
     overflow: visible;
 
     &::before,
