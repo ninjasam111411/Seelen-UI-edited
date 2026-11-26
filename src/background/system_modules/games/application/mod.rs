@@ -2,6 +2,8 @@ mod art;
 #[cfg(windows)]
 mod windows;
 
+pub use windows::is_hidden_file;
+
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},

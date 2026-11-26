@@ -141,3 +141,11 @@ fn special_folders(name: &str) -> Vec<PathBuf> {
     folders.retain(|f| f.is_dir());
     folders
 }
+
+/// hidden or system files (like the ones Windows keeps in every folder)
+pub fn is_hidden_file(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+    const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
+    metadata.file_attributes() & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM) != 0
+}

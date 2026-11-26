@@ -512,6 +512,7 @@ slu_commands_declaration! {
     GetInstalledGames = get_installed_games() -> Vec<InstalledGame>,
     GetGamepadState = get_gamepad_state() -> Option<GamepadState>,
     GetMediaFolderItems = get_media_folder_items() -> Vec<std::path::PathBuf>,
+    GetFolderContent = get_folder_content(path: std::path::PathBuf) -> Vec<(std::path::PathBuf, bool)>,
 
     // Windows Manager
     WmGetRenderTree = wm_get_render_tree() -> TwmGlobalRuntimeTree,

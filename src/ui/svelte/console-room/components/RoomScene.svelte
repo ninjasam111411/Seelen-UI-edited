@@ -6,6 +6,7 @@
   // else minimizes the windows (and brings them back on the next one), like a Mac's wallpaper.
 
   import { onMount } from "svelte";
+  import { invoke, SeelenCommand } from "@seelen-ui/lib";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import FileIcon from "libs/ui/svelte/components/Icon/FileIcon.svelte";
   import { DRAWERS, type Disc, type DrawerId, home } from "../state.svelte.ts";
@@ -62,7 +63,82 @@
       moveCamera(SORTER_VIEW);
     }
     sorterDrawer = drawer;
+    folderStack = [];
     home.loadDrawer(drawer);
+  }
+
+  // folders open inside the drawer; `folderStack` is the way down from the drawer
+  type SorterItem = { id: string; title: string; iconPath: string | null; iconUmid: string | null; isDir: boolean };
+  let folderStack = $state<{ path: string; title: string; items: SorterItem[] }[]>([]);
+  /** folders among the drawer's own files (the drawer only lists paths) */
+  let rootFolders = $state<Set<string>>(new Set());
+
+  $effect(() => {
+    const entries = home.drawerEntries;
+    if (!sorterDrawer || sorterDrawer === "apps" || entries.length === 0) {
+      rootFolders = new Set();
+      return;
+    }
+    // the drawer's files come from a few folders: their listings tell which entries are folders
+    const parents = [...new Set(entries.map((entry) => parentOf(entry.id)).filter(Boolean))].slice(0, 6);
+    let cancelled = false;
+    Promise.all(parents.map((path) => invoke(SeelenCommand.GetFolderContent, { path }).catch(() => [])))
+      .then((lists) => {
+        if (cancelled) return;
+        rootFolders = new Set(lists.flat().filter(([, isDir]) => isDir).map(([path]) => path.toLowerCase()));
+      })
+      .catch(console.error);
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  const sorterItems = $derived.by((): SorterItem[] => {
+    const open = folderStack[folderStack.length - 1];
+    if (open) return open.items;
+    return home.drawerEntries.map((entry) => ({ ...entry, isDir: rootFolders.has(entry.id.toLowerCase()) }));
+  });
+
+  function parentOf(path: string): string {
+    const index = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
+    return index > 0 ? path.slice(0, index) : "";
+  }
+
+  function baseName(path: string): string {
+    return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+  }
+
+  async function openFolder(item: SorterItem) {
+    sounds.select();
+    const content = await invoke(SeelenCommand.GetFolderContent, { path: item.id }).catch(() => []);
+    folderStack = [
+      ...folderStack,
+      {
+        path: item.id,
+        title: item.title,
+        items: content.map(([path, isDir]) => ({
+          id: path,
+          title: baseName(path).replace(/\.lnk$/i, ""),
+          iconPath: path,
+          iconUmid: null,
+          isDir,
+        })),
+      },
+    ];
+    folderRow?.scrollTo({ left: 0 });
+  }
+
+  function folderBack() {
+    sounds.back();
+    folderStack = folderStack.slice(0, -1);
+  }
+
+  function openItem(item: SorterItem) {
+    if (item.isDir) openFolder(item);
+    else {
+      const original = folderStack.length === 0 ? home.drawerEntries.find((e) => e.id === item.id) : undefined;
+      home.openEntry(original ?? { ...item, launch: { type: "file", path: item.id } });
+    }
   }
 
   function closeSorter() {
@@ -124,7 +200,12 @@
   function dropFile() {
     const held = file;
     file = null;
-    if (held?.moved && overMaker) onBurnPath(held.path);
+    if (held?.moved && overMaker) {
+      // the drawer's own entries (like apps) keep the way they are started
+      const original = folderStack.length === 0 ? home.drawerEntries.find((e) => e.id === held.path) : undefined;
+      if (original) home.burn(original);
+      else onBurnPath(held.path);
+    }
     overMaker = false;
   }
 
@@ -182,7 +263,18 @@
   let returning = $state(false);
   let looking = $state<{ x: number; y: number; moved: boolean } | null>(null);
 
-  const shelfDiscs = $derived(discs.slice(0, SHELF_SIZE));
+  /** the shelf shows 16 discs at a time; the arrows flip to the next ones */
+  let shelfPage = $state(0);
+  const shelfPages = $derived(Math.max(1, Math.ceil(discs.length / SHELF_SIZE)));
+  const page = $derived(Math.min(shelfPage, shelfPages - 1));
+  const shelfDiscs = $derived(discs.slice(page * SHELF_SIZE, (page + 1) * SHELF_SIZE));
+
+  function flipShelf(e: MouseEvent, step: number) {
+    e.stopPropagation();
+    if (dragged) return;
+    shelfPage = (page + step + shelfPages) % shelfPages;
+    sounds.move();
+  }
 
   function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);
@@ -447,7 +539,16 @@
             </button>
           {:else if surface.name === "left"}
             <div class="plane shelf" style:transform={onWall(150, -80 - WALL_CENTER_Y, 30)}>
-              <div class="panel-title">Game Shelf</div>
+              <div class="panel-title shelf-title">
+                {#if shelfPages > 1}
+                  <button class="shelf-arrow" onclick={(e) => flipShelf(e, -1)} aria-label="Previous shelf">‹</button>
+                {/if}
+                <span>Game Shelf</span>
+                {#if shelfPages > 1}
+                  <span class="shelf-page">{page + 1} / {shelfPages}</span>
+                  <button class="shelf-arrow" onclick={(e) => flipShelf(e, 1)} aria-label="Next shelf">›</button>
+                {/if}
+              </div>
               <div class="shelf-grid">
                 <!-- the real games first (drag one into the console), empty slots after -->
                 {#each shelfDiscs as item (item.id)}
@@ -551,23 +652,28 @@
             {drawerLabel(drawer)}
           </button>
         {/each}
+        {#if folderStack.length > 0}
+          <button class="pullout-tab pullout-back" onclick={folderBack}>‹ Back</button>
+          <span class="pullout-path">{folderStack.map((f) => f.title).join(" › ")}</span>
+        {/if}
         <span class="pullout-help">Scroll to flip · drag a file onto the Disc Maker · double-click to open</span>
         <button class="pullout-close" onclick={closeSorter} aria-label="Close drawer">✕</button>
       </div>
       <div class="pullout-box">
         <div class="folder-row" bind:this={folderRow}>
-          {#each home.drawerEntries as entry, i (entry.id)}
+          {#each sorterItems as entry, i (entry.id)}
             <div
               class="folder"
+              class:folder-dir={entry.isDir}
               class:folder-held={file?.moved && file.path === entry.id}
               style:--tab-offset={(i % 4) * 22 + "%"}
               role="button"
               tabindex="-1"
               title={entry.title}
               onpointerdown={(e) => grabFile(e, entry)}
-              ondblclick={() => home.openEntry(entry)}
+              ondblclick={() => openItem(entry)}
             >
-              <div class="folder-tab">{entry.title}</div>
+              <div class="folder-tab">{entry.isDir ? "📁 " : ""}{entry.title}</div>
               <div class="folder-body">
                 <FileIcon class="folder-icon" path={entry.iconPath} umid={entry.iconUmid} draggable="false" />
                 <span class="folder-name">{entry.title}</span>
@@ -851,6 +957,39 @@
     margin-bottom: 20px;
   }
 
+  .shelf-title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+  }
+
+  .shelf-page {
+    font-size: 24px;
+    opacity: 0.7;
+  }
+
+  .shelf-arrow {
+    border: none;
+    font: inherit;
+    font-size: 48px;
+    line-height: 1;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: rgb(255 255 255 / 0.12);
+    color: #f1e6d8;
+    cursor: pointer;
+    transition:
+      background 0.15s ease,
+      transform 0.15s ease;
+  }
+
+  .shelf-arrow:hover {
+    background: rgb(255 255 255 / 0.28);
+    transform: translateZ(16px) scale(1.08);
+  }
+
   .panel-title.dark {
     color: #1a1d24;
   }
@@ -965,6 +1104,36 @@
     background: rgb(70 78 94 / 0.92);
     color: #dfe4ec;
     cursor: pointer;
+  }
+
+  .pullout-back {
+    margin-left: 12px;
+    background: #3e63dd;
+    color: white;
+  }
+
+  .pullout-path {
+    font-size: 13px;
+    color: white;
+    text-shadow: 0 1px 4px black;
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .folder-dir .folder-body {
+    background: linear-gradient(180deg, #9cc3f5 0%, #6f9ee0 100%);
+  }
+
+  .folder-dir .folder-tab {
+    background: #9cc3f5;
+    color: #10284d;
+  }
+
+  .folder-dir .folder-name {
+    color: #10284d;
+    font-weight: 600;
   }
 
   .pullout-tab-active {

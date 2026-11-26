@@ -344,6 +344,7 @@ function loadCustom(): Customizations {
 }
 
 function saveCustom() {
+  scheduleBackup();
   try {
     localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify($state.snapshot(custom)));
   } catch (e) {
@@ -375,12 +376,64 @@ async function fileToCover(file: File): Promise<string> {
 }
 
 function saveBurned() {
+  scheduleBackup();
   try {
     localStorage.setItem(BURNED_STORAGE_KEY, JSON.stringify($state.snapshot(burned)));
   } catch (e) {
     console.error("Could not save discs", e);
   }
 }
+
+// ─── Backup ───────────────────────────────────────────────────────────────────
+// The changes (names, covers, favorites, made discs...) live in the window's storage, which a
+// reset or reinstall can wipe. A copy is kept in Seelen UI's data folder and brought back when
+// the storage comes up empty.
+
+const BACKUP_FILE = "backup.json";
+let backupTimer: ReturnType<typeof setTimeout> | undefined;
+/** no backups are written until the old one had the chance to be restored */
+let backupReady = false;
+
+function scheduleBackup() {
+  if (!backupReady) return;
+  clearTimeout(backupTimer);
+  backupTimer = setTimeout(writeBackup, 2000);
+}
+
+function writeBackup() {
+  const content = JSON.stringify({
+    version: 1,
+    savedAt: Date.now(),
+    custom: $state.snapshot(custom),
+    burned: $state.snapshot(burned),
+  });
+  invoke(SeelenCommand.WriteFile, { filename: BACKUP_FILE, content }).catch(console.error);
+}
+
+async function restoreBackup() {
+  const empty = !localStorage.getItem(CUSTOM_STORAGE_KEY) && !localStorage.getItem(BURNED_STORAGE_KEY);
+  try {
+    if (empty) {
+      const raw = await invoke(SeelenCommand.ReadFile, { filename: BACKUP_FILE });
+      const backup = JSON.parse(raw) as { custom?: Partial<Customizations>; burned?: Disc[] };
+      if (backup.custom) {
+        custom = { ...custom, ...backup.custom };
+        localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify($state.snapshot(custom)));
+      }
+      if (Array.isArray(backup.burned)) {
+        burned = backup.burned;
+        localStorage.setItem(BURNED_STORAGE_KEY, JSON.stringify($state.snapshot(burned)));
+      }
+    }
+  } catch {
+    // no backup yet
+  }
+  backupReady = true;
+  // keeps the backup up to date with what is in the storage now
+  if (!empty) writeBackup();
+}
+
+restoreBackup();
 
 function fileName(path: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean);
