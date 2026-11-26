@@ -3,9 +3,11 @@ import { Document } from "flexsearch";
 import { globalState } from "./mod.svelte";
 import { foldersAsStartMenuItems } from "./knownFolders.svelte";
 
-const APPS_AND_FILES_LIMIT = 21;
+const APPS_AND_FILES_LIMIT = 40;
 /** Settings shown together with apps and files, kept low to not bury the apps results. */
-const SETTINGS_LIMIT_MIXED = 8;
+const SETTINGS_LIMIT_MIXED = 3;
+/** Files shown together with apps; the `files:` filter shows all of them. */
+const FILES_LIMIT_MIXED = 4;
 /** Settings shown when filtering by `settings:`, they are the only results. */
 const SETTINGS_LIMIT_FILTERED = 50;
 
@@ -54,10 +56,19 @@ const _itemsWhereToSearch: SearchableItem[] = $derived.by(() => {
   };
 
   const filtered: SearchableItem[] = [];
+  // the same app is often listed more than once (start menu, desktop shortcut, store app):
+  // only the first one (start menu items come first) is kept
+  const seenApps = new Set<string>();
+  const isNewApp = (item: StartMenuItem) => {
+    const keys = [appNameKey(item.display_name), item.target?.toLowerCase()].filter(Boolean) as string[];
+    if (keys.some((key) => seenApps.has(key))) return false;
+    keys.forEach((key) => seenApps.add(key));
+    return true;
+  };
 
   for (const item of allItems) {
     if (!item.path) {
-      if (item.umid && shouldInclude.apps) {
+      if (item.umid && shouldInclude.apps && isNewApp(item)) {
         filtered.push({ ...item, isApp: true });
       }
       continue;
@@ -76,7 +87,14 @@ const _itemsWhereToSearch: SearchableItem[] = $derived.by(() => {
 
     const lastSlash = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
     const filename = lastSlash >= 0 ? path.slice(lastSlash + 1) : path;
-    if (!filename.includes("uninstall") && filename !== "desktop.ini") {
+    if (filename.includes("uninstall") || filename === "desktop.ini") {
+      continue;
+    }
+    if (isApp) {
+      if (!isNewApp(item)) continue;
+      // shortcuts from the desktop are listed by file name: no ".lnk" on them
+      filtered.push({ ...item, isApp, display_name: item.display_name.replace(/\.(lnk|url)$/i, "") });
+    } else {
       filtered.push({ ...item, isApp });
     }
   }
@@ -147,7 +165,7 @@ const searchedSettings = $derived.by(() => {
   }
 
   const { index, itemMap } = _settingsIndex;
-  const results = index.search(search, { limit, enrich: false });
+  const results = index.search(search, { limit: filterBy ? limit : 50, enrich: false });
 
   // title matches are returned before keyword matches
   const seen = new Set<string>();
@@ -160,7 +178,13 @@ const searchedSettings = $derived.by(() => {
       }
     }
   }
-  return matched.slice(0, limit);
+  if (filterBy) return matched.slice(0, limit);
+  // mixed with apps, only settings with a word starting with what was typed ("rob" is not
+  // "Troubleshoot other problems")
+  const query = search.toLowerCase();
+  return matched
+    .filter((entry) => entry.title.toLowerCase().split(/[\s\-_/]+/).some((word) => word.startsWith(query)))
+    .slice(0, limit);
 });
 
 // Only queries the pre-built index on each keystroke — no indexing here.
@@ -190,8 +214,10 @@ const searchedItems = $derived.by((): SearchResult[] => {
   const otherSettings = searchedSettings.filter((s) => s.title.toLowerCase() !== query);
   const apps = matched.filter((item) => item.isApp);
   const others = matched.filter((item) => !item.isApp);
+  // apps are what the menu is for; a few files at the end, all of them with `files:`
+  const files = filterBy === "files" ? others : others.slice(0, FILES_LIMIT_MIXED);
 
-  return [...exactSettings, ...apps, ...otherSettings, ...others];
+  return [...exactSettings, ...apps, ...otherSettings, ...files];
 });
 
 export const searchState = {
@@ -211,6 +237,15 @@ export const searchState = {
     return searchedItems;
   },
 };
+
+/** "Roblox Player.lnk" and "Roblox" are the same app */
+function appNameKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\.(lnk|url|exe)$/, "")
+    .replace(/\s+(player|launcher|app|client)$/, "")
+    .trim();
+}
 
 function getFileStem(p: string): string {
   const s = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));

@@ -307,7 +307,32 @@ $effect.root(() => {
   $effect(() => {
     const monitor = monitors.primaryMonitor;
     if (!monitor) return;
-    Widget.self.setPosition(monitor.rect).then(() => Widget.self.show()).catch(console.error);
+    const rect = $state.snapshot(monitor.rect);
+    const place = () => Widget.self.setPosition(rect).catch(console.error);
+    place().then(() => Widget.self.show()).catch(console.error);
+
+    // Moving onto a monitor with another scale makes Windows resize the window after it was
+    // placed, so a strip of the room showed on the next monitor: place it again once that
+    // settled, and whenever its size stops matching the monitor.
+    const timers = [400, 1500, 4000].map((ms) => setTimeout(place, ms));
+    const width = rect.right - rect.left;
+    const height = rect.bottom - rect.top;
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+    const onResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        const ratio = window.devicePixelRatio || 1;
+        const w = Math.round(window.innerWidth * ratio);
+        const h = Math.round(window.innerHeight * ratio);
+        if (Math.abs(w - width) > 1 || Math.abs(h - height) > 1) place();
+      }, 250);
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      timers.forEach(clearTimeout);
+      clearTimeout(resizeTimer);
+      window.removeEventListener("resize", onResize);
+    };
   });
 });
 
