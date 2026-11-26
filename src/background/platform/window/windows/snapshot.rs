@@ -76,9 +76,12 @@ impl NativeWindow {
             monitor: self.monitor().stable_id().unwrap_or_default(),
             title: self.title(),
             class: self.class(),
+            // the desktop (or a window whose app has no readable name) is shown as "Desktop"
             name: self
                 .app_display_name()
-                .unwrap_or(String::from("Error on App Name")),
+                .ok()
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or_else(|| String::from("Desktop")),
             exe: process.exe_path().ok(),
             umid: self.app_user_model_id().map(|umid| umid.to_string()),
             is_maximized: self.is_maximized(),

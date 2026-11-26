@@ -83,10 +83,12 @@ $glass-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/sv
 
 // on a top bar the islands hang from the screen edge: the center one as a notch (curved corners
 // on both sides, the dock's tab hangs from it), the side ones flush with the screen's sides
+// (theme styles are a lower layer than the toolbar's own layout, so these need !important)
 .ft-bar.top {
-  margin: 0 0 var(--config-margin);
-  padding: 0;
-  overflow: visible;
+  height: 100vh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
 
   .ft-bar-left,
   .ft-bar-center,
@@ -94,7 +96,7 @@ $glass-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/sv
     position: relative;
     align-self: start;
     // the whole height of the toolbar's strip, top to bottom
-    height: 100vh !important;
+    height: 100% !important;
     overflow: visible;
 
     &::before,
@@ -120,9 +122,11 @@ $glass-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/sv
     background: radial-gradient(circle at 100% 100%, transparent calc(var(--island-curve) - 0.5px), var(--island-color) var(--island-curve));
   }
 
+  // the free bottom corners curve off softly, so with nothing under them the islands don't look
+  // cut off; the corners at the screen's sides stay square, flush with the edge
   .ft-bar-left {
     padding-left: 14px !important;
-    border-radius: 0 0 18px 0;
+    border-radius: 0 0 22px 0;
 
     &::after {
       @extend %curve-right;
@@ -130,8 +134,8 @@ $glass-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/sv
   }
 
   .ft-bar-center {
-    padding: 0 18px !important;
-    border-radius: 0 0 18px 18px;
+    padding: 0 20px !important;
+    border-radius: 0 0 22px 22px;
 
     &::before {
       @extend %curve-left;
@@ -143,7 +147,7 @@ $glass-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/sv
 
   .ft-bar-right {
     padding-right: 14px !important;
-    border-radius: 0 0 0 18px;
+    border-radius: 0 0 0 22px;
 
     &::before {
       @extend %curve-left;
