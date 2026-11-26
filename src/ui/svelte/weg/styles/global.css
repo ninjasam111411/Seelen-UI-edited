@@ -65,42 +65,58 @@ body {
   }
 }
 
-/* the dock folded into its tab stays folded while the mouse is over the tab */
-#root:has(.taskbar.tab-mode.hidden.left) {
-  transform: translate(calc(var(--dock-size) * -1), 0);
+/*
+ * Tab mode: the dock sits flush against its screen edge (its margin is left out on that side and
+ * between it and its tab), folded into the tab until the tab is pressed. Folded, only the tab
+ * stays on screen, also while the mouse is over it.
+ */
+#root:has(.taskbar.tab-mode.top) {
+  transform: translate(0, calc(var(--config-margin) * -1));
 }
-#root:has(.taskbar.tab-mode.hidden.right) {
-  transform: translate(var(--dock-size), 0);
+#root:has(.taskbar.tab-mode.bottom) {
+  transform: translate(0, var(--config-margin));
+}
+#root:has(.taskbar.tab-mode.left) {
+  transform: translate(calc(var(--config-margin) * -1), 0);
+}
+#root:has(.taskbar.tab-mode.right) {
+  transform: translate(var(--config-margin), 0);
 }
 #root:has(.taskbar.tab-mode.hidden.top) {
-  transform: translate(0, calc(var(--dock-size) * -1));
+  transform: translate(0, calc((var(--dock-size) - var(--config-margin)) * -1));
 }
 #root:has(.taskbar.tab-mode.hidden.bottom) {
-  transform: translate(0, var(--dock-size));
+  transform: translate(0, calc(var(--dock-size) - var(--config-margin)));
+}
+#root:has(.taskbar.tab-mode.hidden.left) {
+  transform: translate(calc((var(--dock-size) - var(--config-margin)) * -1), 0);
+}
+#root:has(.taskbar.tab-mode.hidden.right) {
+  transform: translate(calc(var(--dock-size) - var(--config-margin)), 0);
 }
 
-/* the tab hangs from the dock's far edge, so it stays on screen while the dock is folded */
+/* the tab hangs right off the dock's far edge (inside the root's margin) */
 .weg-tab {
   position: absolute;
   z-index: 10;
 
   &.top {
-    top: calc(100% - 1px);
+    top: calc(100% - var(--config-margin) - 1px);
     left: 50%;
     translate: -50% 0;
   }
   &.bottom {
-    bottom: 100%;
+    bottom: calc(100% - var(--config-margin) - 1px);
     left: 50%;
     translate: -50% 0;
   }
   &.left {
-    left: 100%;
+    left: calc(100% - var(--config-margin) - 1px);
     top: 50%;
     translate: 0 -50%;
   }
   &.right {
-    right: 100%;
+    right: calc(100% - var(--config-margin) - 1px);
     top: 50%;
     translate: 0 -50%;
   }
