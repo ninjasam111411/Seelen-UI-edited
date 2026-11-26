@@ -401,6 +401,11 @@
   const ROOM_DEPTH = FRONT_Z - BACK_Z;
   const STAND_TOP = 210;
   const STAND_FRONT_Z = BACK_Z + 300;
+  const CONSOLE_W = 170;
+  const CONSOLE_H = 380;
+  const CONSOLE_D = 110;
+  /** the side is only as tall as the outer edge of the wings, below where they curve in */
+  const CONSOLE_SIDE_H = 255;
 
   const DISC_COLORS = [
     "#e5484d",
@@ -584,9 +589,24 @@
               style:transform={onWall(-820, -20 - WALL_CENTER_Y, 30)}
               onclick={(e) => e.stopPropagation()}
             >
-              <div class="panel-title dark">Disc Maker</div>
-              <div class="maker-tray"><div class="maker-blank"></div></div>
-              <div class="panel-hint dark">{burning ? `Making ${burning}…` : "Drop a file here to make a disc"}</div>
+              <div class="maker-top">
+                <span class="maker-name">DISC MAKER</span>
+                <span class="maker-leds">
+                  <i class="led led-power"></i>
+                  <i class="led led-busy"></i>
+                </span>
+              </div>
+              <div class="maker-window">
+                <div class="maker-platter">
+                  <div class="maker-blank"></div>
+                  <div class="maker-hub"></div>
+                </div>
+                <div class="maker-arm"><div class="maker-laser"></div></div>
+                <div class="maker-glass"></div>
+              </div>
+              <div class="maker-progress"><div class="maker-progress-fill"></div></div>
+              <div class="maker-status">{burning ? `Making ${burning}…` : "Drop a file here to make a disc"}</div>
+              <div class="maker-slot"></div>
             </button>
             <div class="plane sorter" class:sorter-open={!!sorterDrawer} style:transform={onWall(250, -60 - WALL_CENTER_Y, 30)}>
               <div class="panel-title">File Sorter</div>
@@ -607,26 +627,86 @@
         </div>
       {/each}
 
-      <!-- TV stand and console -->
+      <!-- TV stand (a walnut media console) and the console -->
+      <div
+        class="plane stand-glow"
+        style:transform={place(0, FLOOR_Y - 1, STAND_FRONT_Z - 120, "rotateX(90deg)")}
+      ></div>
       <div
         class="plane stand-front"
         style:height={FLOOR_Y - STAND_TOP + "px"}
         style:transform={place(0, (FLOOR_Y + STAND_TOP) / 2, STAND_FRONT_Z)}
+      >
+        <div class="stand-door">
+          <span class="stand-handle"></span>
+        </div>
+        <div class="stand-open">
+          <div class="stand-shelf"></div>
+          <div class="stand-led"></div>
+        </div>
+        <div class="stand-door">
+          <span class="stand-handle"></span>
+        </div>
+      </div>
+      {#each [-1, 1] as side (side)}
+        <div
+          class="plane stand-side"
+          style:height={FLOOR_Y - STAND_TOP + "px"}
+          style:transform={place(side * 750, (FLOOR_Y + STAND_TOP) / 2, STAND_FRONT_Z - 150, "rotateY(90deg)")}
+        ></div>
+      {/each}
+      <div class="plane stand-top" style:transform={place(0, STAND_TOP, STAND_FRONT_Z - 150, "rotateX(90deg)")}>
+        <div class="console-reflection"></div>
+      </div>
+      <div
+        class="plane console-side"
+        style:transform={place(640 - CONSOLE_W / 2 + 4, STAND_TOP - CONSOLE_SIDE_H / 2 - 4, STAND_FRONT_Z - 60 - CONSOLE_D / 2, "rotateY(90deg)")}
       ></div>
-      <div class="plane stand-top" style:transform={place(0, STAND_TOP, STAND_FRONT_Z - 150, "rotateX(90deg)")}></div>
       <div
         class="plane console"
         class:console-target={!!disc}
         class:console-over={disc?.overConsole}
         bind:this={consoleEl}
-        style:transform={place(640, STAND_TOP - 180, STAND_FRONT_Z - 60)}
+        style:transform={place(640, STAND_TOP - CONSOLE_H / 2, STAND_FRONT_Z - 60)}
       >
-        <div class="console-shell left"></div>
-        <div class="console-core">
-          <div class="console-slot"></div>
-          <div class="console-light"></div>
-        </div>
-        <div class="console-shell right"></div>
+        <svg viewBox="0 0 180 400" width={CONSOLE_W} height={CONSOLE_H} aria-hidden="true">
+          <defs>
+            <linearGradient id="cr-shell" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#dfe3ea" />
+              <stop offset="0.45" stop-color="#ffffff" />
+              <stop offset="1" stop-color="#e9ecf2" />
+            </linearGradient>
+            <linearGradient id="cr-core" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#1c1f27" />
+              <stop offset="1" stop-color="#07080b" />
+            </linearGradient>
+            <filter id="cr-glow" x="-200%" y="-10%" width="500%" height="120%">
+              <feGaussianBlur stdDeviation="3" />
+            </filter>
+          </defs>
+          <!-- black core -->
+          <rect x="60" y="30" width="60" height="358" rx="10" fill="url(#cr-core)" />
+          <!-- white wings that curve out at the top -->
+          <path d="M64 4 C 34 12 10 52 6 118 L 4 360 C 4 380 12 392 30 392 L 64 392 Z" fill="url(#cr-shell)" />
+          <path d="M116 4 C 146 12 170 52 174 118 L 176 360 C 176 380 168 392 150 392 L 116 392 Z" fill="url(#cr-shell)" />
+          <path d="M64 4 C 34 12 10 52 6 118" stroke="rgb(255 255 255 / 0.9)" stroke-width="1.5" fill="none" />
+          <path d="M116 4 C 146 12 170 52 174 118 L 176 360" stroke="rgb(0 0 0 / 0.08)" stroke-width="2" fill="none" />
+          <!-- the blue light along both sides of the core -->
+          <g class="console-lights">
+            <rect x="65" y="50" width="4" height="320" rx="2" filter="url(#cr-glow)" />
+            <rect x="111" y="50" width="4" height="320" rx="2" filter="url(#cr-glow)" />
+            <rect x="66" y="50" width="2" height="320" rx="1" />
+            <rect x="112" y="50" width="2" height="320" rx="1" />
+          </g>
+          <!-- disc slot, buttons and ports on the core -->
+          <rect class="console-slot" x="72" y="96" width="36" height="3" rx="1.5" />
+          <circle cx="90" cy="76" r="2.4" fill="#2c3040" />
+          <circle cx="90" cy="112" r="2.4" fill="#2c3040" />
+          <rect x="80" y="300" width="9" height="5" rx="1" fill="#000" />
+          <rect x="92" y="300" width="9" height="5" rx="1" fill="#000" />
+          <!-- stand -->
+          <ellipse cx="90" cy="396" rx="40" ry="4" fill="#0b0c10" />
+        </svg>
       </div>
 
     </div>
@@ -893,60 +973,197 @@
     background: rgb(255 255 255 / 0.08);
   }
 
+  /* walnut media console */
   .stand-front {
     width: 1500px;
-    background: linear-gradient(180deg, #2b241d 0%, #1d1813 100%);
-    border-radius: 6px 6px 0 0;
+    display: grid;
+    grid-template-columns: 1fr 1.1fr 1fr;
+    gap: 6px;
+    padding: 12px 12px 26px;
+    border-radius: 6px 6px 2px 2px;
+    background:
+      repeating-linear-gradient(
+        92deg,
+        rgb(255 255 255 / 0.025) 0 2px,
+        transparent 2px 11px,
+        rgb(0 0 0 / 0.06) 11px 13px,
+        transparent 13px 23px
+      ),
+      linear-gradient(180deg, #6b4a31 0%, #533824 55%, #3d2819 100%);
+    box-shadow:
+      inset 0 3px 0 rgb(255 220 180 / 0.18),
+      inset 0 -26px 0 #1a120c,
+      0 30px 60px rgb(0 0 0 / 0.5);
+  }
+
+  .stand-door {
+    position: relative;
+    border-radius: 4px;
+    /* fluted wood slats */
+    background:
+      repeating-linear-gradient(
+        90deg,
+        rgb(255 255 255 / 0.07) 0 3px,
+        rgb(0 0 0 / 0) 3px 15px,
+        rgb(0 0 0 / 0.28) 15px 18px
+      ),
+      linear-gradient(180deg, #7a5638 0%, #5c3f28 100%);
+    box-shadow:
+      inset 0 0 0 1px rgb(0 0 0 / 0.35),
+      inset 0 2px 0 rgb(255 230 200 / 0.15);
+  }
+
+  .stand-handle {
+    position: absolute;
+    top: 50%;
+    width: 8px;
+    height: 70px;
+    border-radius: 4px;
+    transform: translateY(-50%);
+    background: linear-gradient(90deg, #8c6a2f, #f2d38c 45%, #a07a35);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.5);
+  }
+
+  .stand-door:first-child .stand-handle {
+    right: 18px;
+  }
+
+  .stand-door:last-child .stand-handle {
+    left: 18px;
+  }
+
+  .stand-open {
+    position: relative;
+    border-radius: 4px;
+    overflow: hidden;
+    background: linear-gradient(180deg, #120c08 0%, #20160f 100%);
+    box-shadow: inset 0 14px 30px rgb(0 0 0 / 0.75);
+  }
+
+  .stand-shelf {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 8px;
+    background: linear-gradient(180deg, #6b4a31, #3d2819);
+    box-shadow: 0 6px 12px rgb(0 0 0 / 0.6);
+  }
+
+  .stand-led {
+    position: absolute;
+    left: 8%;
+    right: 8%;
+    top: 0;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--system-accent-color, #4c8dff);
+    box-shadow:
+      0 0 14px 4px color-mix(in srgb, var(--system-accent-color, #4c8dff) 70%, transparent),
+      0 30px 60px 20px color-mix(in srgb, var(--system-accent-color, #4c8dff) 18%, transparent);
+  }
+
+  /* rotated planes: turned around their own top-left corner, so place() centers them where asked */
+  .stand-side,
+  .stand-top,
+  .stand-glow,
+  .console-side {
+    transform-origin: 0 0;
+  }
+
+  .stand-side {
+    width: 300px;
+    background: linear-gradient(90deg, #3d2819 0%, #4f3522 100%);
+    box-shadow: inset 0 -26px 0 #150e09;
   }
 
   .stand-top {
     width: 1500px;
     height: 300px;
-    background: linear-gradient(0deg, #3a3027 0%, #2e261f 100%);
+    border-radius: 6px;
+    background:
+      repeating-linear-gradient(
+        3deg,
+        rgb(255 255 255 / 0.03) 0 2px,
+        transparent 2px 14px,
+        rgb(0 0 0 / 0.05) 14px 16px,
+        transparent 16px 30px
+      ),
+      linear-gradient(0deg, #7a5638 0%, #5f412a 100%);
+    box-shadow:
+      inset 0 -4px 0 rgb(255 225 190 / 0.35),
+      inset 0 0 40px rgb(0 0 0 / 0.35);
+  }
+
+  /* the console's light on the table top */
+  .console-reflection {
+    position: absolute;
+    left: calc(50% + 640px - 110px);
+    bottom: 40px;
+    width: 220px;
+    height: 120px;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, rgb(255 255 255 / 0.22), rgb(120 170 255 / 0.12) 50%, transparent);
+  }
+
+  /* glow on the floor under the floating console */
+  .stand-glow {
+    width: 1700px;
+    height: 420px;
+    border-radius: 50%;
+    background: radial-gradient(
+      closest-side,
+      color-mix(in srgb, var(--system-accent-color, #4c8dff) 22%, transparent),
+      transparent
+    );
+    pointer-events: none;
   }
 
   .console {
-    width: 150px;
-    height: 360px;
-    display: flex;
+    filter: drop-shadow(0 18px 24px rgb(0 0 0 / 0.55));
   }
 
-  .console-shell {
-    flex: 1;
-    background: linear-gradient(180deg, #ffffff 0%, #e6e8ee 100%);
+  .console svg {
+    display: block;
+    overflow: visible;
   }
 
-  .console-shell.left {
-    border-radius: 46px 0 0 10px;
+  .console-lights {
+    fill: var(--system-accent-color, #4c8dff);
+    animation: console-breathe 3s ease-in-out infinite alternate;
   }
 
-  .console-shell.right {
-    border-radius: 0 46px 10px 0;
+  .console-target .console-lights,
+  .console-over .console-lights {
+    animation-duration: 0.6s;
   }
 
-  .console-core {
-    width: 38%;
-    background: linear-gradient(180deg, #16181e 0%, #0b0c10 100%);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding-top: 70px;
-    gap: 18px;
+  @keyframes console-breathe {
+    from {
+      opacity: 0.55;
+    }
+    to {
+      opacity: 1;
+    }
   }
 
   .console-slot {
-    width: 70%;
-    height: 6px;
-    border-radius: 3px;
-    background: #000;
+    fill: #000;
   }
 
-  .console-light {
-    width: 6px;
-    height: 120px;
-    border-radius: 3px;
-    background: var(--system-accent-color, #0a84ff);
-    opacity: 0.6;
+  .console-side {
+    width: 110px;
+    height: 255px;
+    border-radius: 10px 10px 8px 8px;
+    background:
+      radial-gradient(circle, rgb(0 0 0 / 0.22) 1.2px, transparent 1.6px) 0 0 / 9px 9px no-repeat,
+      linear-gradient(90deg, #b9bfc9 0%, #d8dce3 60%, #c9ced6 100%);
+    background-size:
+      60px 120px,
+      100% 100%;
+    background-position:
+      50% 12%,
+      0 0;
   }
 
   .panel-title {
@@ -1050,11 +1267,6 @@
 
   .maker-over {
     filter: brightness(1.12) drop-shadow(0 0 70px rgb(150 200 255 / 0.95));
-  }
-
-  .maker-burning .maker-blank {
-    opacity: 0.9;
-    animation: maker-spin 0.5s linear infinite;
   }
 
   @keyframes maker-spin {
@@ -1288,48 +1500,222 @@
     filter: brightness(1.2);
   }
 
-  .panel-hint {
-    font-size: 26px;
-    color: rgb(255 255 255 / 0.7);
-  }
-
-  .panel-hint.dark {
-    color: rgb(20 24 32 / 0.6);
-  }
-
   .drawer-label {
     font-size: 30px;
     font-weight: 600;
     color: #eef1f6;
   }
 
+  /* the disc maker: a brushed metal burner on a wall shelf */
   .maker {
-    width: 560px;
-    padding: 30px;
-    border-radius: 24px;
-    background: linear-gradient(180deg, #e9ebf0 0%, #c9cdd6 100%);
+    width: 520px;
+    padding: 26px 30px 34px;
+    border-radius: 34px;
+    background:
+      repeating-linear-gradient(90deg, rgb(255 255 255 / 0.05) 0 1px, transparent 1px 3px),
+      linear-gradient(160deg, #f4f5f8 0%, #c9ced8 55%, #aeb4c0 100%);
+    box-shadow:
+      inset 0 2px 0 rgb(255 255 255 / 0.9),
+      inset 0 -6px 14px rgb(0 0 0 / 0.18),
+      0 40px 60px rgb(0 0 0 / 0.45);
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 20px;
+    gap: 18px;
   }
 
-  .maker-tray {
-    width: 280px;
-    height: 280px;
+  /* wall shelf it sits on */
+  .maker::after {
+    content: "";
+    position: absolute;
+    left: -40px;
+    right: -40px;
+    bottom: -30px;
+    height: 22px;
+    border-radius: 6px;
+    background: linear-gradient(180deg, #6b4a31, #3d2819);
+    box-shadow: 0 16px 24px rgb(0 0 0 / 0.5);
+  }
+
+  .maker-top {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .maker-name {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 0.35em;
+    color: rgb(30 34 44 / 0.55);
+    text-shadow: 0 1px 0 rgb(255 255 255 / 0.7);
+  }
+
+  .maker-leds {
+    display: flex;
+    gap: 12px;
+  }
+
+  .led {
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
-    background: #1a1d24;
+    background: #6b7280;
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.5);
+  }
+
+  .led-power {
+    background: #3ddc84;
+    box-shadow: 0 0 10px #3ddc84;
+  }
+
+  .maker-burning .led-busy {
+    background: #ff5a4f;
+    box-shadow: 0 0 12px #ff5a4f;
+    animation: led-blink 0.5s steps(2) infinite;
+  }
+
+  @keyframes led-blink {
+    50% {
+      opacity: 0.3;
+    }
+  }
+
+  .maker-window {
+    position: relative;
+    width: 330px;
+    height: 330px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #20242d 0%, #0d0f14 70%);
+    box-shadow:
+      inset 0 8px 24px rgb(0 0 0 / 0.8),
+      0 0 0 8px #9aa1ae,
+      0 0 0 10px rgb(255 255 255 / 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .maker-platter {
+    position: relative;
+    width: 86%;
+    height: 86%;
     display: flex;
     align-items: center;
     justify-content: center;
   }
 
   .maker-blank {
-    width: 84%;
-    height: 84%;
+    width: 100%;
+    height: 100%;
     border-radius: 50%;
-    background: conic-gradient(from 0deg, #8a8f99, #d9dde4, #8a8f99, #d9dde4, #8a8f99);
-    opacity: 0.35;
+    background:
+      radial-gradient(circle, transparent 15%, rgb(0 0 0 / 0.25) 15.5%, transparent 17%),
+      conic-gradient(from 20deg, #c9ced6, #f7e7ff, #c7f0ff, #fff6c9, #c9ced6, #f7e7ff, #c7f0ff, #c9ced6);
+    opacity: 0.85;
+    box-shadow: 0 0 0 2px rgb(255 255 255 / 0.15);
+  }
+
+  .maker-hub {
+    position: absolute;
+    width: 18%;
+    height: 18%;
+    border-radius: 50%;
+    background: radial-gradient(circle, #30343e 30%, #8a909c 32%, #5b616c 100%);
+  }
+
+  .maker-arm {
+    position: absolute;
+    right: 18px;
+    top: 24px;
+    width: 14px;
+    height: 150px;
+    border-radius: 7px;
+    background: linear-gradient(90deg, #8a909c, #e3e6ec, #8a909c);
+    transform-origin: 50% 8px;
+    transform: rotate(14deg);
+    transition: transform 0.6s ease;
+    box-shadow: 0 4px 10px rgb(0 0 0 / 0.6);
+  }
+
+  .maker-laser {
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    transform: translateX(-50%);
+    background: #ff3b30;
+    opacity: 0;
+  }
+
+  .maker-glass {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgb(255 255 255 / 0.28) 0%, transparent 38%, transparent 70%, rgb(255 255 255 / 0.08));
+    pointer-events: none;
+  }
+
+  .maker-burning .maker-blank {
+    animation: maker-spin 0.6s linear infinite;
+  }
+
+  .maker-burning .maker-arm {
+    transform: rotate(32deg);
+  }
+
+  .maker-burning .maker-laser {
+    opacity: 1;
+    box-shadow: 0 0 16px 6px rgb(255 59 48 / 0.8);
+  }
+
+  .maker-progress {
+    width: 80%;
+    height: 8px;
+    border-radius: 4px;
+    background: rgb(0 0 0 / 0.18);
+    overflow: hidden;
+  }
+
+  .maker-progress-fill {
+    width: 0;
+    height: 100%;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #4c8dff, #9b6bff);
+  }
+
+  .maker-burning .maker-progress-fill {
+    animation: maker-fill 1.3s ease-in-out forwards;
+  }
+
+  @keyframes maker-fill {
+    to {
+      width: 100%;
+    }
+  }
+
+  .maker-status {
+    font-size: 24px;
+    color: rgb(20 24 32 / 0.65);
+    max-width: 90%;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .maker-slot {
+    width: 60%;
+    height: 8px;
+    border-radius: 4px;
+    background: #111318;
+    box-shadow:
+      inset 0 2px 3px rgb(0 0 0 / 0.9),
+      0 1px 0 rgb(255 255 255 / 0.7);
   }
 
   .sorter {
