@@ -557,10 +557,10 @@ async function loadDrawer(drawer: DrawerId) {
   }));
 }
 
-function openLibrary() {
+function openLibrary(drawer?: DrawerId) {
   libraryOpen = true;
   // from the Media tab it opens on the apps, where they can be added to it
-  loadDrawer(tab === "media" ? "apps" : openDrawer);
+  loadDrawer(drawer ?? (tab === "media" ? "apps" : openDrawer));
 }
 
 // ─── Drag & drop ──────────────────────────────────────────────────────────────

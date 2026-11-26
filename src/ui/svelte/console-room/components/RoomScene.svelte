@@ -5,7 +5,7 @@
   // console on: the view zooms into the TV and the home menu opens. A quick, still click anywhere
   // else minimizes the windows (and brings them back on the next one), like a Mac's wallpaper.
 
-  import type { Disc } from "../state.svelte.ts";
+  import { DRAWERS, type Disc, type DrawerId } from "../state.svelte.ts";
   import DiscFace from "./DiscFace.svelte";
 
   interface Props {
@@ -19,9 +19,20 @@
     onBackground: () => void;
     /** a disc was dropped in the console */
     onPlayDisc: (disc: Disc) => void;
+    /** the file sorter (one of its drawers) or the disc maker was clicked */
+    onOpenLibrary: (drawer: DrawerId) => void;
+    drawerLabel: (drawer: DrawerId) => string;
   }
 
-  let { tvTitle, tvHint, zoomed, discs, onTurnOn, onBackground, onPlayDisc }: Props = $props();
+  let { tvTitle, tvHint, zoomed, discs, onTurnOn, onBackground, onPlayDisc, onOpenLibrary, drawerLabel }: Props =
+    $props();
+
+  /** like the TV: walk back to the start, then turn on and open the library */
+  function openLibrary(e: MouseEvent, drawer: DrawerId) {
+    e.stopPropagation();
+    if (dragged) return;
+    returnToStart(() => onOpenLibrary(drawer));
+  }
 
   let pressAt: { x: number; y: number; t: number } | null = null;
 
@@ -132,7 +143,11 @@
     disc = { ...disc, x: e.clientX, y: e.clientY, overConsole: over };
   }
 
+  /** the last press was a drag to look around, so its click is ignored */
+  let dragged = false;
+
   function onPointerUp() {
+    dragged = !!looking?.moved;
     looking = null;
     if (!disc) return;
     const dropped = disc;
@@ -323,15 +338,23 @@
               </div>
             </div>
           {:else if surface.name === "right"}
-            <div class="plane maker" style:transform={onWall(-820, -20 - WALL_CENTER_Y, 30)}>
+            <button
+              class="plane maker"
+              style:transform={onWall(-820, -20 - WALL_CENTER_Y, 30)}
+              onclick={(e) => openLibrary(e, "apps")}
+            >
               <div class="panel-title dark">Disc Maker</div>
               <div class="maker-tray"><div class="maker-blank"></div></div>
-            </div>
+              <div class="panel-hint dark">Click to burn a disc</div>
+            </button>
             <div class="plane sorter" style:transform={onWall(250, -60 - WALL_CENTER_Y, 30)}>
               <div class="panel-title">File Sorter</div>
               <div class="sorter-drawers">
-                {#each Array(8) as _, i (i)}
-                  <div class="drawer"><span class="handle"></span></div>
+                {#each DRAWERS as drawer (drawer)}
+                  <button class="drawer" onclick={(e) => openLibrary(e, drawer)}>
+                    <span class="drawer-label">{drawerLabel(drawer)}</span>
+                    <span class="handle"></span>
+                  </button>
                 {/each}
               </div>
             </div>
@@ -671,6 +694,40 @@
     background: #05060a;
   }
 
+  .maker,
+  .drawer {
+    border: none;
+    font: inherit;
+    cursor: pointer;
+    transition:
+      transform 0.15s ease,
+      filter 0.15s ease;
+  }
+
+  .maker:hover {
+    filter: brightness(1.08) drop-shadow(0 0 40px rgb(150 200 255 / 0.6));
+  }
+
+  .drawer:hover {
+    transform: translateZ(24px);
+    filter: brightness(1.2);
+  }
+
+  .panel-hint {
+    font-size: 26px;
+    color: rgb(255 255 255 / 0.7);
+  }
+
+  .panel-hint.dark {
+    color: rgb(20 24 32 / 0.6);
+  }
+
+  .drawer-label {
+    font-size: 30px;
+    font-weight: 600;
+    color: #eef1f6;
+  }
+
   .maker {
     width: 560px;
     padding: 30px;
@@ -718,8 +775,10 @@
     border-radius: 10px;
     background: linear-gradient(180deg, #5d6577 0%, #4b5262 100%);
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 12px;
   }
 
   .handle {
