@@ -34,86 +34,120 @@
   }
 }
 
+// white frosted glass with a fine grain, shared by the toolbar islands and the dock
+$glass-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.09 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+
 .ft-bar-left,
 .ft-bar-center,
 .ft-bar-right {
+  --island-color: rgb(255 255 255 / 0.16);
+  --island-curve: 14px;
   width: fit-content;
   max-width: 100%;
   height: calc(100% - 6px) !important;
-  padding: 0 10px !important;
+  padding: 0 12px !important;
   border-radius: 999px;
-  // glass: a clear tint, a light shine on top and a thin bright edge
   background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.14) 0%, rgb(255 255 255 / 0.03) 100%),
-    oklch(from var(--slu-std-bg-color) l c h / 0.5);
+    #{$glass-grain},
+    linear-gradient(180deg, rgb(255 255 255 / 0.1) 0%, transparent 100%),
+    var(--island-color);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.22),
-    inset 0 0 0 1px rgb(255 255 255 / 0.1),
-    0 4px 14px rgb(0 0 0 / 0.25);
+    inset 0 -1px 0 rgb(255 255 255 / 0.28),
+    0 4px 16px rgb(0 0 0 / 0.18);
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.45);
 
   // a group without items leaves no empty island
   &:not(:has(.ft-bar-item)) {
     background: none;
     box-shadow: none;
     padding: 0 !important;
+
+    &::before,
+    &::after {
+      display: none;
+    }
   }
 }
 
 .ft-bar-left {
   justify-self: start;
-  margin-left: 6px;
 }
 
 .ft-bar-center {
   justify-self: center;
 }
 
-// on a top bar the center island is a notch hanging from the screen edge (flat top, rounded
-// bottom, curved outer corners), one shape with the dock's tab that hangs right under it
-// the notch touches the top of the screen and reaches the bottom of the toolbar's window
-.ft-bar.top {
-  margin-top: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  overflow: visible;
-}
-
-.ft-bar.top .ft-bar-center {
-  --notch-color: oklch(from var(--slu-std-bg-color) l c h / 0.62);
-  --notch-curve: 14px;
-  position: relative;
-  align-self: start;
-  height: calc(100% + var(--config-margin) * 2) !important;
-  padding: 0 18px !important;
-  border-radius: 0 0 16px 16px;
-  background: var(--notch-color);
-  box-shadow: none;
-  overflow: visible;
-
-  &::before,
-  &::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    width: var(--notch-curve);
-    height: var(--notch-curve);
-    pointer-events: none;
-  }
-
-  &::before {
-    right: 100%;
-    background: radial-gradient(circle at 0 100%, transparent calc(var(--notch-curve) - 0.5px), var(--notch-color) var(--notch-curve));
-  }
-
-  &::after {
-    left: 100%;
-    background: radial-gradient(circle at 100% 100%, transparent calc(var(--notch-curve) - 0.5px), var(--notch-color) var(--notch-curve));
-  }
-}
-
 .ft-bar-right {
   justify-self: end;
-  margin-right: 6px;
+}
+
+// on a top bar the islands hang from the screen edge: the center one as a notch (curved corners
+// on both sides, the dock's tab hangs from it), the side ones flush with the screen's sides
+.ft-bar.top {
+  margin: 0 0 var(--config-margin);
+  padding: 0;
+  overflow: visible;
+
+  .ft-bar-left,
+  .ft-bar-center,
+  .ft-bar-right {
+    position: relative;
+    align-self: start;
+    height: calc(100% + var(--config-margin)) !important;
+    overflow: visible;
+
+    &::before,
+    &::after {
+      position: absolute;
+      top: 0;
+      width: var(--island-curve);
+      height: var(--island-curve);
+      pointer-events: none;
+    }
+  }
+
+  // the curve that joins an island to the screen's top edge, on its free side(s)
+  %curve-left {
+    content: "";
+    right: 100%;
+    background: radial-gradient(circle at 0 100%, transparent calc(var(--island-curve) - 0.5px), var(--island-color) var(--island-curve));
+  }
+
+  %curve-right {
+    content: "";
+    left: 100%;
+    background: radial-gradient(circle at 100% 100%, transparent calc(var(--island-curve) - 0.5px), var(--island-color) var(--island-curve));
+  }
+
+  .ft-bar-left {
+    padding-left: 14px !important;
+    border-radius: 0 0 18px 0;
+
+    &::after {
+      @extend %curve-right;
+    }
+  }
+
+  .ft-bar-center {
+    padding: 0 18px !important;
+    border-radius: 0 0 18px 18px;
+
+    &::before {
+      @extend %curve-left;
+    }
+    &::after {
+      @extend %curve-right;
+    }
+  }
+
+  .ft-bar-right {
+    padding-right: 14px !important;
+    border-radius: 0 0 0 18px;
+
+    &::before {
+      @extend %curve-left;
+    }
+  }
 }
 
 .ft-bar-item {
